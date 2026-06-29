@@ -29,6 +29,13 @@ export interface LoginResponse {
   token: string;
 }
 
+export interface CheckPhoneResult {
+  exists: boolean;
+  // True when the account exists but has not set a password yet,
+  // i.e. the client should proceed to call set-password.
+  needsPassword: boolean;
+}
+
 export interface BulkUploadError {
   row: number;
   phoneNumber: string | null;
@@ -139,6 +146,21 @@ export class AccountsService {
 
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);
+  }
+
+  async checkPhone(phoneNumber: string): Promise<CheckPhoneResult> {
+    const account = await this.accountsRepository.findOne({
+      where: { phoneNumber },
+    });
+
+    if (!account) {
+      return { exists: false, needsPassword: false };
+    }
+
+    return {
+      exists: true,
+      needsPassword: account.setPassword || !account.passwordHash,
+    };
   }
 
   async setPassword(setPasswordDto: SetPasswordDto): Promise<AccountResponse> {

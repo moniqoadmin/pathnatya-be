@@ -28,6 +28,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
+import { CheckPhoneDto } from './dto/check-phone.dto';
 
 @ApiTags('accounts')
 @Controller('accounts')
@@ -75,6 +76,16 @@ export class AccountsController {
       throw new BadRequestException('No file uploaded (field name must be "file")');
     }
     return this.accountsService.bulkUpload(file.buffer);
+  }
+
+  @Post('check-phone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Check if a phone number has an account. Returns { exists, needsPassword } so the client can decide whether to call set-password.',
+  })
+  checkPhone(@Body() checkPhoneDto: CheckPhoneDto) {
+    return this.accountsService.checkPhone(checkPhoneDto.phoneNumber);
   }
 
   @Post('set-password')
