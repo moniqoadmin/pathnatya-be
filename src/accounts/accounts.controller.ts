@@ -24,6 +24,7 @@ import {
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AccountsService } from './accounts.service';
+import { LOGIN_SUCCESS_TOKEN } from './accounts.constants';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
@@ -106,6 +107,12 @@ export class AccountsController {
   })
   login(@Body() loginDto: LoginDto) {
     return this.accountsService.login(loginDto);
+  }
+
+  @Get('login-token')
+  @ApiOperation({ summary: 'Return the constant login success token.' })
+  getLoginToken() {
+    return { token: LOGIN_SUCCESS_TOKEN };
   }
 
   @Get()
