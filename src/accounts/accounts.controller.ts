@@ -131,11 +131,10 @@ export class AccountsController {
 
   @Get('login-token')
   @ApiOperation({
-    summary:
-      'Return the five login success keys as JWE-encrypted tokens.',
+    summary: 'Return the five login success keys.',
   })
-  async getLoginToken() {
-    return { tokens: await this.jweService.encryptLoginKeys() };
+  getLoginToken() {
+    return { keys: this.jweService.getLoginKeys() };
   }
 
   @Get()

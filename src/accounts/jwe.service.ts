@@ -13,17 +13,9 @@ const ACCOUNT_ID_RE =
 export class JweService {
   constructor(private readonly configService: ConfigService) {}
 
-  private deriveSecretKey(envKey: string): Uint8Array {
-    const secret = this.configService.getOrThrow<string>(envKey);
-    return createHash('sha256').update(secret).digest();
-  }
-
   private getSecretKey(): Uint8Array {
-    return this.deriveSecretKey('JWE_SECRET');
-  }
-
-  private getLoginSecretKey(): Uint8Array {
-    return this.deriveSecretKey('JWE_SECRET1');
+    const secret = this.configService.getOrThrow<string>('JWE_SECRET');
+    return createHash('sha256').update(secret).digest();
   }
 
   async encryptAccountToken(accountId: string): Promise<string> {
@@ -34,7 +26,7 @@ export class JweService {
       .encrypt(this.getSecretKey());
   }
 
-  private getLoginKeys(): string[] {
+  getLoginKeys(): string[] {
     return [
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_1'),
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_2'),
@@ -42,18 +34,6 @@ export class JweService {
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_4'),
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_5'),
     ];
-  }
-
-  async encryptLoginKey(key: string): Promise<string> {
-    return new EncryptJWT({ key })
-      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-      .setIssuedAt()
-      .setExpirationTime('1h')
-      .encrypt(this.getLoginSecretKey());
-  }
-
-  async encryptLoginKeys(): Promise<string[]> {
-    return Promise.all(this.getLoginKeys().map((key) => this.encryptLoginKey(key)));
   }
 
   async decrypt(token: string): Promise<JweTokenPayload> {
