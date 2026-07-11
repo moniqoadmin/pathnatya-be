@@ -14,7 +14,7 @@ import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { hashPassword, verifyPassword } from './password.util';
-import { LOGIN_SUCCESS_TOKEN } from './accounts.constants';
+import { JweService } from './jwe.service';
 import {
   TEMPLATE_COLUMNS,
   TEMPLATE_SHEET_NAME,
@@ -54,6 +54,7 @@ export class AccountsService {
   constructor(
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
+    private readonly jweService: JweService,
   ) {}
 
   async create(
@@ -210,7 +211,7 @@ export class AccountsService {
 
     return {
       account: this.toResponse(saved),
-      token: LOGIN_SUCCESS_TOKEN,
+      token: await this.jweService.encryptAccountToken(saved.id),
     };
   }
 

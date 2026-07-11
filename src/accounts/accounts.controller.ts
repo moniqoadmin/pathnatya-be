@@ -13,29 +13,46 @@ import {
   Post,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
+  ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiHeader,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AccountsService } from './accounts.service';
-import { LOGIN_SUCCESS_TOKEN } from './accounts.constants';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { CheckPhoneDto } from './dto/check-phone.dto';
+import { JweAuthGuard } from './guards/jwe-auth.guard';
+import { AppKeyGuard } from './guards/app-key.guard';
+import { Public } from './decorators/public.decorator';
+import { JweService } from './jwe.service';
 
 @ApiTags('accounts')
+@ApiHeader({
+  name: 'X-App-Key',
+  description: 'Shared secret embedded in the Electron app',
+  required: true,
+})
+@ApiBearerAuth()
+@UseGuards(AppKeyGuard, JweAuthGuard)
 @Controller('accounts')
 export class AccountsController {
-  constructor(private readonly accountsService: AccountsService) {}
+  constructor(
+    private readonly accountsService: AccountsService,
+    private readonly jweService: JweService,
+  ) {}
 
+  @Public()
   @Post()
   @ApiOperation({ summary: 'Create an account' })
   create(@Body() createAccountDto: CreateAccountDto, @Ip() ip: string) {
@@ -79,6 +96,7 @@ export class AccountsController {
     return this.accountsService.bulkUpload(file.buffer);
   }
 
+  @Public()
   @Post('check-phone')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -89,6 +107,7 @@ export class AccountsController {
     return this.accountsService.checkPhone(checkPhoneDto.phoneNumber);
   }
 
+  @Public()
   @Post('set-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -99,20 +118,24 @@ export class AccountsController {
     return this.accountsService.setPassword(setPasswordDto);
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Login with phone number + password. Returns account details and a constant token, or "User not found" / "Password wrong".',
+      'Login with phone number + password. Returns account details and a JWE token, or "User not found" / "Password wrong".',
   })
   login(@Body() loginDto: LoginDto) {
     return this.accountsService.login(loginDto);
   }
 
   @Get('login-token')
-  @ApiOperation({ summary: 'Return the constant login success token.' })
-  getLoginToken() {
-    return { token: LOGIN_SUCCESS_TOKEN };
+  @ApiOperation({
+    summary:
+      'Return the five login success keys as JWE-encrypted tokens.',
+  })
+  async getLoginToken() {
+    return { tokens: await this.jweService.encryptLoginKeys() };
   }
 
   @Get()
