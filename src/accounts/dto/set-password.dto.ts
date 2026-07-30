@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, plainToInstance } from 'class-transformer';
 import {
   IsNotEmpty,
   IsOptional,
@@ -9,13 +8,6 @@ import {
 } from 'class-validator';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
 
-@Transform(({ value }) =>
-  plainToInstance(SetPasswordDto, {
-    ...value,
-    ipAddress: value?.ipAddress ?? value?.ipaddress,
-    ipaddress: undefined,
-  }),
-)
 export class SetPasswordDto {
   @ApiProperty({ example: '9876543210' })
   @IsSupportedPhoneNumber()
