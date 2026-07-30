@@ -164,7 +164,10 @@ export class AccountsService {
     };
   }
 
-  async setPassword(setPasswordDto: SetPasswordDto): Promise<AccountResponse> {
+  async setPassword(
+    setPasswordDto: SetPasswordDto,
+    ipAddress?: string | null,
+  ): Promise<AccountResponse> {
     const account = await this.accountsRepository.findOne({
       where: { phoneNumber: setPasswordDto.phoneNumber },
     });
@@ -174,6 +177,7 @@ export class AccountsService {
 
     account.passwordHash = await hashPassword(setPasswordDto.password);
     account.setPassword = false;
+    account.ipAddress = setPasswordDto.ipAddress ?? ipAddress ?? account.ipAddress;
 
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);

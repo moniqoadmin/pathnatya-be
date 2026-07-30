@@ -114,8 +114,8 @@ export class AccountsController {
     summary:
       'Set or reset an account password by phone number. Sets setPassword to false.',
   })
-  setPassword(@Body() setPasswordDto: SetPasswordDto) {
-    return this.accountsService.setPassword(setPasswordDto);
+  setPassword(@Body() setPasswordDto: SetPasswordDto, @Ip() ipAddress: string) {
+    return this.accountsService.setPassword(setPasswordDto, ipAddress);
   }
 
   @Public()
