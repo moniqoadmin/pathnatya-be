@@ -6,6 +6,10 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // So req.ip reflects the real client when behind Railway / a reverse proxy.
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
+
   app.setGlobalPrefix('api');
 
   app.useGlobalPipes(
@@ -17,6 +21,7 @@ async function bootstrap() {
   );
 
   app.enableCors();
+
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Pathnatya Backend API')

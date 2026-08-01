@@ -25,6 +25,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { AccountsService } from './accounts.service';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -36,6 +37,9 @@ import { JweAuthGuard } from './guards/jwe-auth.guard';
 import { AppKeyGuard } from './guards/app-key.guard';
 import { Public } from './decorators/public.decorator';
 import { JweService } from './jwe.service';
+
+/** Stricter per-IP limit for unauthenticated / credential endpoints. */
+const AuthThrottle = () => Throttle({ default: { limit: 10, ttl: 60_000 } });
 
 @ApiTags('accounts')
 @ApiHeader({
@@ -53,6 +57,7 @@ export class AccountsController {
   ) {}
 
   @Public()
+  @AuthThrottle()
   @Post()
   @ApiOperation({ summary: 'Create an account' })
   create(@Body() createAccountDto: CreateAccountDto, @Ip() ip: string) {
@@ -97,6 +102,7 @@ export class AccountsController {
   }
 
   @Public()
+  @AuthThrottle()
   @Post('check-phone')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -108,6 +114,7 @@ export class AccountsController {
   }
 
   @Public()
+  @AuthThrottle()
   @Post('set-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -122,6 +129,7 @@ export class AccountsController {
   }
 
   @Public()
+  @AuthThrottle()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
