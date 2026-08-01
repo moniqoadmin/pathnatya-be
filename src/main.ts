@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { PayloadCryptoService } from './crypto/payload-crypto.service';
+import { PayloadEncryptionExceptionFilter } from './crypto/payload-encryption.exception-filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -19,6 +21,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  const payloadCrypto = app.get(PayloadCryptoService);
+  app.useGlobalFilters(new PayloadEncryptionExceptionFilter(payloadCrypto));
 
   app.enableCors();
 
@@ -38,5 +43,9 @@ async function bootstrap() {
   console.log(`Application running on http://localhost:${port}/api`);
   // eslint-disable-next-line no-console
   console.log(`Swagger docs on http://localhost:${port}/docs`);
+  // eslint-disable-next-line no-console
+  console.log(
+    `Payload encryption: ${payloadCrypto.isEnabled() ? 'ON' : 'OFF'}`,
+  );
 }
 bootstrap();

@@ -37,6 +37,7 @@ import { JweAuthGuard } from './guards/jwe-auth.guard';
 import { AppKeyGuard } from './guards/app-key.guard';
 import { Public } from './decorators/public.decorator';
 import { JweService } from './jwe.service';
+import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorator';
 
 /** Stricter per-IP limit for unauthenticated / credential endpoints. */
 const AuthThrottle = () => Throttle({ default: { limit: 10, ttl: 60_000 } });
@@ -64,6 +65,7 @@ export class AccountsController {
     return this.accountsService.create(createAccountDto, ip);
   }
 
+  @SkipPayloadEncryption()
   @Get('bulk/template')
   @ApiOperation({
     summary:
@@ -137,6 +139,7 @@ export class AccountsController {
       'Login with phone number + password. Returns account details and a JWE token, or "User not found" / "Password wrong".',
   })
   login(@Body() loginDto: LoginDto) {
+    console.log('loginDto', loginDto);
     return this.accountsService.login(loginDto);
   }
 
