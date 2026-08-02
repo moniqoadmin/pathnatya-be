@@ -25,8 +25,26 @@ async function bootstrap() {
   const payloadCrypto = app.get(PayloadCryptoService);
   app.useGlobalFilters(new PayloadEncryptionExceptionFilter(payloadCrypto));
 
-  app.enableCors();
+  // Explicit origin allowlist — never use `*` (that would accept any host/port).
+  // Requests with no Origin header (Electron main, curl, server-to-server) are allowed.
+  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      if (!origin || corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    credentials: true,
+  });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Pathnatya Backend API')
