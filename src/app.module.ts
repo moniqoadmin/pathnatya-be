@@ -33,11 +33,28 @@ function loadTestKeyMatches(
         const loadTestKey = config.get<string>('LOAD_TEST_KEY');
         return {
           skipIf: (context: ExecutionContext) => {
-            if (!loadTestKey) return false;
             const req = context.switchToHttp().getRequest<{
               headers: Record<string, string | string[] | undefined>;
+              method?: string;
+              url?: string;
             }>();
-            return loadTestKeyMatches(req.headers['x-load-test-key'], loadTestKey);
+            const headerPresent =
+              typeof req.headers['x-load-test-key'] === 'string';
+            if (!headerPresent) return false;
+            const matched =
+              !!loadTestKey &&
+              loadTestKeyMatches(req.headers['x-load-test-key'], loadTestKey);
+            // Temporary: diagnose load-test throttle bypass (remove after verifying).
+            // eslint-disable-next-line no-console
+            console.log('[throttle-bypass]', {
+              method: req.method,
+              url: req.url,
+              loadTestKeyConfigured: !!loadTestKey,
+              headerPresent,
+              matched,
+              skip: matched,
+            });
+            return matched;
           },
           throttlers: [
             {
