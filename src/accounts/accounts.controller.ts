@@ -134,6 +134,12 @@ export class AccountsController {
   @AuthThrottle()
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @ApiHeader({
+    name: 'X-Load-Test-Key',
+    description:
+      'When set to LOAD_TEST_KEY, skips rate limiting (for load testing only).',
+    required: false,
+  })
   @ApiOperation({
     summary:
       'Login with phone number + password. Returns account details and a JWE token, or "User not found" / "Password wrong".',
