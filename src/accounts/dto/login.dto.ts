@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
 
 export class LoginDto {
@@ -11,4 +11,10 @@ export class LoginDto {
   @IsString()
   @IsNotEmpty()
   password: string;
+
+  @ApiPropertyOptional({ example: '192.168.1.1' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(45)
+  ipAddress?: string;
 }

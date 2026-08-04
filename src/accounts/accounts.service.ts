@@ -190,8 +190,10 @@ export class AccountsService {
     }
   }
 
-  async login(loginDto: LoginDto): Promise<LoginResponse> {
-    console.log('loginDto', loginDto);
+  async login(
+    loginDto: LoginDto,
+    ipAddress?: string | null,
+  ): Promise<LoginResponse> {
     const account = await this.accountsRepository.findOne({
       where: { phoneNumber: loginDto.phoneNumber },
     });
@@ -212,8 +214,8 @@ export class AccountsService {
     }
 
     account.lastLoginTime = new Date();
+    account.ipAddress = loginDto.ipAddress ?? ipAddress ?? account.ipAddress;
     const saved = await this.accountsRepository.save(account);
-console.log('saved', saved);
     return {
       account: this.toResponse(saved),
       token: await this.jweService.encryptAccountToken(saved.id),

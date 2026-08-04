@@ -144,9 +144,11 @@ export class AccountsController {
     summary:
       'Login with phone number + password. Returns account details and a JWE token, or "User not found" / "Password wrong".',
   })
-  login(@Body() loginDto: LoginDto) {
-    console.log('loginDto', loginDto);
-    return this.accountsService.login(loginDto);
+  login(@Body() loginDto: LoginDto, @Ip() ipAddress: string) {
+    return this.accountsService.login(
+      loginDto,
+      loginDto.ipAddress ?? ipAddress,
+    );
   }
 
   @Get('login-token')
