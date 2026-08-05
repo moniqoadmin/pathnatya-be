@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountsModule } from '../accounts/accounts.module';
+import { AppCacheService } from '../config/app-cache.service';
 import { Video } from './entities/video.entity';
 import { VideoSegment } from './entities/video-segment.entity';
 import { VideosController } from './videos.controller';
@@ -14,7 +15,7 @@ import { VideoSegmentsService } from './video-segments.service';
     AccountsModule,
   ],
   controllers: [VideosController, VideoSegmentsController],
-  providers: [VideosService, VideoSegmentsService],
+  providers: [AppCacheService, VideosService, VideoSegmentsService],
   exports: [VideosService, VideoSegmentsService],
 })
 export class VideosModule {}

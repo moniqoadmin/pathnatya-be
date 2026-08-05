@@ -1,13 +1,11 @@
 import {
   ConflictException,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { InjectRepository } from '@nestjs/typeorm';
-import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
+import { AppCacheService } from '../config/app-cache.service';
 import {
   CACHE_TTL_ONE_DAY_MS,
   videoCacheKeys,
@@ -35,7 +33,7 @@ export class VideosService {
   constructor(
     @InjectRepository(Video)
     private readonly videosRepository: Repository<Video>,
-    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly cache: AppCacheService,
   ) {}
 
   async create(dto: CreateVideoDto): Promise<VideoResponse> {
