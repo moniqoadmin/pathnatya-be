@@ -1,12 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { PayloadCryptoService } from './crypto/payload-crypto.service';
 import { PayloadEncryptionExceptionFilter } from './crypto/payload-encryption.exception-filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Disable default body parser so we can raise the limit for large segment
+  // payloads (remoteData base64 can be tens of MB).
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  app.use(json({ limit: '70mb' }));
+  app.use(urlencoded({ extended: true, limit: '70mb' }));
 
   // So req.ip reflects the real client when behind Railway / a reverse proxy.
   const expressApp = app.getHttpAdapter().getInstance();

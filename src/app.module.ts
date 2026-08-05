@@ -10,6 +10,7 @@ import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { PayloadCryptoModule } from './crypto/payload-crypto.module';
+import { VideosModule } from './videos/videos.module';
 
 function loadTestKeyMatches(
   provided: string | string[] | undefined,
@@ -71,6 +72,7 @@ function loadTestKeyMatches(
     }),
     HealthModule,
     AccountsModule,
+    VideosModule,
   ],
   controllers: [AppController],
   providers: [

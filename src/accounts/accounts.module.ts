@@ -11,6 +11,6 @@ import { AppKeyGuard } from './guards/app-key.guard';
   imports: [TypeOrmModule.forFeature([Account])],
   controllers: [AccountsController],
   providers: [AccountsService, JweService, JweAuthGuard, AppKeyGuard],
-  exports: [AccountsService],
+  exports: [AccountsService, JweService, JweAuthGuard, AppKeyGuard],
 })
 export class AccountsModule {}
