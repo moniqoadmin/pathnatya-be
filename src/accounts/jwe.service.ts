@@ -33,6 +33,7 @@ export class JweService {
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_3'),
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_4'),
       this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_5'),
+      this.configService.getOrThrow<string>('LOGIN_SUCCESS_KEY_6'),
     ];
   }
 
