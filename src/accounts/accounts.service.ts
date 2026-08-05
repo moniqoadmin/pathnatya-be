@@ -220,11 +220,11 @@ export class AccountsService {
       account.passwordHash,
     );
     if (!passwordMatches) {
-      throw new UnauthorizedException('Invalid credentials. If you have forgotten your password, please contact Jababdar Bhai.');
+      throw new UnauthorizedException('Invalid credentials. If you have forgotten your password, please contact your Jababdar Bhai.');
     }
 
     const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
-    this.assertLoginIpAllowed(account, resolvedIp);
+    this.resolveLoginSystemAddress(account, resolvedIp);
 
     account.lastLoginTime = new Date();
     account.ipAddress = resolvedIp ?? account.ipAddress;
@@ -411,21 +411,39 @@ export class AccountsService {
     account.systemAddress = addresses;
   }
 
-  // Empty / missing systemAddress → allow any IP. Otherwise IP must match.
-  private assertLoginIpAllowed(
+  // Login IP rules:
+  // - Empty systemAddress → allow (and for 2+ teams, register this IP).
+  // - IP already registered → allow.
+  // - 2+ teams and slots remain → register the new IP on login, then allow.
+  // - Otherwise (full list / single-team unknown IP) → reject.
+  private resolveLoginSystemAddress(
     account: Account,
     ip: string | null,
   ): void {
-    const addresses = account.systemAddress ?? [];
+    const addresses = [...(account.systemAddress ?? [])];
+    const maxTeams = this.maxTeams(account);
+
     if (addresses.length === 0) {
+      if (maxTeams >= 2 && ip) {
+        account.systemAddress = [ip];
+      }
       return;
     }
 
-    if (!ip || !addresses.includes(ip)) {
-      throw new ForbiddenException(
-        'Login not allowed from this system, use the same system as the one used the first time. If the system is not available, please contact Jababdar Bhai.',
-      );
+    if (ip && addresses.includes(ip)) {
+      return;
     }
+
+    // Additional teams register their IP on login until the cap is filled.
+    if (maxTeams >= 2 && ip && addresses.length < maxTeams) {
+      addresses.push(ip);
+      account.systemAddress = addresses;
+      return;
+    }
+
+    throw new ForbiddenException(
+      'Login not allowed from this system, use the same system as the one used the first time. If the system is not available, please contact your Jababdar Bhai.',
+    );
   }
 
   private toResponse(account: Account): AccountResponse {
