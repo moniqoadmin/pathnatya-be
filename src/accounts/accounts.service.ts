@@ -212,7 +212,7 @@ export class AccountsService {
     }
 
     if (account.setPassword || !account.passwordHash) {
-      throw new UnauthorizedException('Password not set');
+      throw new UnauthorizedException('Invalid Credentials');
     }
 
     const passwordMatches = await verifyPassword(
@@ -220,7 +220,7 @@ export class AccountsService {
       account.passwordHash,
     );
     if (!passwordMatches) {
-      throw new UnauthorizedException('Password wrong');
+      throw new UnauthorizedException('Invalid Credentials');
     }
 
     const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
