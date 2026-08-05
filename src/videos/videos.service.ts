@@ -1,10 +1,17 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
+import {
+  CACHE_TTL_ONE_DAY_MS,
+  videoCacheKeys,
+} from '../config/cache.config';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { Video } from './entities/video.entity';
 
@@ -28,6 +35,7 @@ export class VideosService {
   constructor(
     @InjectRepository(Video)
     private readonly videosRepository: Repository<Video>,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
   async create(dto: CreateVideoDto): Promise<VideoResponse> {
@@ -54,22 +62,47 @@ export class VideosService {
     });
 
     const saved = await this.videosRepository.save(video);
-    return this.toResponse(saved);
+    const response = this.toResponse(saved);
+
+    await this.cache.del(videoCacheKeys.all);
+    await this.cache.set(
+      videoCacheKeys.one(response.videoId),
+      response,
+      CACHE_TTL_ONE_DAY_MS,
+    );
+
+    return response;
   }
 
   async findAll(): Promise<VideoResponse[]> {
+    const cached = await this.cache.get<VideoResponse[]>(videoCacheKeys.all);
+    if (cached) {
+      return cached;
+    }
+
     const videos = await this.videosRepository.find({
       order: { createdAt: 'DESC' },
     });
-    return videos.map((video) => this.toResponse(video));
+    const response = videos.map((video) => this.toResponse(video));
+    await this.cache.set(videoCacheKeys.all, response, CACHE_TTL_ONE_DAY_MS);
+    return response;
   }
 
   async findOne(videoId: string): Promise<VideoResponse> {
+    const key = videoCacheKeys.one(videoId);
+    const cached = await this.cache.get<VideoResponse>(key);
+    if (cached) {
+      return cached;
+    }
+
     const video = await this.videosRepository.findOne({ where: { videoId } });
     if (!video) {
       throw new NotFoundException(`Video with videoId ${videoId} not found`);
     }
-    return this.toResponse(video);
+
+    const response = this.toResponse(video);
+    await this.cache.set(key, response, CACHE_TTL_ONE_DAY_MS);
+    return response;
   }
 
   private toResponse(video: Video): VideoResponse {

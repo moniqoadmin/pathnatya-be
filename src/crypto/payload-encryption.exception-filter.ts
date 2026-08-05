@@ -8,6 +8,11 @@ import {
 import { Request, Response } from 'express';
 import { PayloadCryptoService } from './payload-crypto.service';
 
+function isLocalhostRequest(request: Request): boolean {
+  const host = (request.hostname ?? '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
 @Catch()
 export class PayloadEncryptionExceptionFilter implements ExceptionFilter {
   constructor(private readonly payloadCrypto: PayloadCryptoService) {}
@@ -32,7 +37,11 @@ export class PayloadEncryptionExceptionFilter implements ExceptionFilter {
         ? { statusCode: status, message: exceptionResponse }
         : exceptionResponse;
 
-    if (!this.payloadCrypto.isEnabled() || this.shouldSkipPath(request)) {
+    if (
+      !this.payloadCrypto.isEnabled() ||
+      this.shouldSkipPath(request) ||
+      isLocalhostRequest(request)
+    ) {
       response.status(status).json(body);
       return;
     }

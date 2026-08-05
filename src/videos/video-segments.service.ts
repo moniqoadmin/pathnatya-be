@@ -1,10 +1,17 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Cache } from 'cache-manager';
 import { In, Repository } from 'typeorm';
+import {
+  CACHE_TTL_ONE_DAY_MS,
+  videoSegmentCacheKeys,
+} from '../config/cache.config';
 import { CreateVideoSegmentDto } from './dto/create-video-segment.dto';
 import { VideoSegment } from './entities/video-segment.entity';
 import { Video } from './entities/video.entity';
@@ -37,6 +44,7 @@ export class VideoSegmentsService {
     private readonly segmentsRepository: Repository<VideoSegment>,
     @InjectRepository(Video)
     private readonly videosRepository: Repository<Video>,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
   async create(
@@ -101,6 +109,17 @@ export class VideoSegmentsService {
 
     const saved = await this.segmentsRepository.save(entities);
     const responses = saved.map((segment) => this.toResponse(segment));
+
+    await Promise.all(
+      responses.map((segment) =>
+        this.cache.set(
+          videoSegmentCacheKeys.one(segment.videoId, segment.segmentNumber),
+          segment,
+          CACHE_TTL_ONE_DAY_MS,
+        ),
+      ),
+    );
+
     return responses.length === 1 ? responses[0] : responses;
   }
 
@@ -108,6 +127,12 @@ export class VideoSegmentsService {
     videoId: string,
     segmentNumber: number,
   ): Promise<VideoSegmentResponse> {
+    const key = videoSegmentCacheKeys.one(videoId, segmentNumber);
+    const cached = await this.cache.get<VideoSegmentResponse>(key);
+    if (cached) {
+      return cached;
+    }
+
     const segment = await this.segmentsRepository.findOne({
       where: { videoId, segmentNumber },
     });
@@ -116,7 +141,10 @@ export class VideoSegmentsService {
         `Segment ${segmentNumber} not found for videoId ${videoId}`,
       );
     }
-    return this.toResponse(segment);
+
+    const response = this.toResponse(segment);
+    await this.cache.set(key, response, CACHE_TTL_ONE_DAY_MS);
+    return response;
   }
 
   private toResponse(segment: VideoSegment): VideoSegmentResponse {

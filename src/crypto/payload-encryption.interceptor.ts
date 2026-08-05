@@ -7,10 +7,15 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
-import { Observable, from } from 'rxjs';
+import { Observable, from, of } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { PayloadCryptoService } from './payload-crypto.service';
 import { SKIP_PAYLOAD_ENCRYPTION_KEY } from './skip-payload-encryption.decorator';
+
+function isLocalhostRequest(request: Request): boolean {
+  const host = (request.hostname ?? '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
 
 @Injectable()
 export class PayloadEncryptionInterceptor implements NestInterceptor {
@@ -38,9 +43,14 @@ export class PayloadEncryptionInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    return from(this.decryptRequestBody(request)).pipe(
+    const local = isLocalhostRequest(request);
+
+    return from(this.decryptRequestBody(request, local)).pipe(
       switchMap(() => next.handle()),
-      switchMap((data) => from(this.encryptResponse(data))),
+      // Localhost always returns plain JSON (even if the request was encrypted).
+      switchMap((data) =>
+        local ? of(data) : from(this.encryptResponse(data)),
+      ),
     );
   }
 
@@ -53,7 +63,10 @@ export class PayloadEncryptionInterceptor implements NestInterceptor {
     );
   }
 
-  private async decryptRequestBody(request: Request): Promise<void> {
+  private async decryptRequestBody(
+    request: Request,
+    local: boolean,
+  ): Promise<void> {
     const contentType = String(request.headers['content-type'] ?? '');
 
     // Multipart (file uploads) and non-JSON bodies stay as-is.
@@ -66,13 +79,26 @@ export class PayloadEncryptionInterceptor implements NestInterceptor {
       return;
     }
 
-    if (typeof body.payload !== 'string' || !body.payload) {
-      throw new BadRequestException(
-        'Encrypted payload required. Send JSON as { "payload": "<jwe>" }.',
+    const hasEncryptedEnvelope =
+      typeof body.payload === 'string' &&
+      !!body.payload &&
+      Object.keys(body).length === 1;
+
+    if (hasEncryptedEnvelope) {
+      request.body = await this.payloadCrypto.decryptJson(
+        body.payload as string,
       );
+      return;
     }
 
-    request.body = await this.payloadCrypto.decryptJson(body.payload);
+    // Localhost: accept normal JSON without encryption.
+    if (local) {
+      return;
+    }
+
+    throw new BadRequestException(
+      'Encrypted payload required. Send JSON as { "payload": "<jwe>" }.',
+    );
   }
 
   private async encryptResponse(data: unknown): Promise<unknown> {

@@ -1,9 +1,11 @@
 import { ExecutionContext, Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { timingSafeEqual } from 'crypto';
+import { buildCacheConfig } from './config/cache.config';
 import { buildDatabaseConfig } from './config/database.config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -69,6 +71,11 @@ function loadTestKeyMatches(
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => buildDatabaseConfig(config),
+    }),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => buildCacheConfig(config),
     }),
     HealthModule,
     AccountsModule,
