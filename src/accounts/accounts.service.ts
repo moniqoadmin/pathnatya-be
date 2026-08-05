@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -89,6 +90,8 @@ export class AccountsService {
       sanchalakName: createAccountDto.sanchalakName ?? null,
       metadata: createAccountDto.metadata ?? null,
       ipAddress: ipAddress ?? null,
+      numberOfTeams: createAccountDto.numberOfTeams ?? null,
+      systemAddress: null,
     });
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);
@@ -144,6 +147,9 @@ export class AccountsService {
     if (updateAccountDto.metadata !== undefined) {
       account.metadata = updateAccountDto.metadata;
     }
+    if (updateAccountDto.numberOfTeams !== undefined) {
+      account.numberOfTeams = updateAccountDto.numberOfTeams;
+    }
 
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);
@@ -175,9 +181,13 @@ export class AccountsService {
       throw new NotFoundException('User not found');
     }
 
+    const resolvedIp =
+      setPasswordDto.ipAddress ?? ipAddress ?? account.ipAddress ?? null;
+
     account.passwordHash = await hashPassword(setPasswordDto.password);
     account.setPassword = false;
-    account.ipAddress = setPasswordDto.ipAddress ?? ipAddress ?? account.ipAddress;
+    account.ipAddress = resolvedIp;
+    this.registerSystemAddress(account, resolvedIp);
 
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);
@@ -213,8 +223,11 @@ export class AccountsService {
       throw new UnauthorizedException('Password wrong');
     }
 
+    const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
+    this.assertLoginIpAllowed(account, resolvedIp);
+
     account.lastLoginTime = new Date();
-    account.ipAddress = loginDto.ipAddress ?? ipAddress ?? account.ipAddress;
+    account.ipAddress = resolvedIp ?? account.ipAddress;
     const saved = await this.accountsRepository.save(account);
     return {
       account: this.toResponse(saved),
@@ -367,6 +380,52 @@ export class AccountsService {
       throw new NotFoundException(`Account with id ${id} not found`);
     }
     return account;
+  }
+
+  private maxTeams(account: Account): number {
+    return account.numberOfTeams ?? 1;
+  }
+
+  // Registers an IP into systemAddress, capped by numberOfTeams (default 1).
+  private registerSystemAddress(
+    account: Account,
+    ip: string | null,
+  ): void {
+    if (!ip) {
+      return;
+    }
+
+    const addresses = [...(account.systemAddress ?? [])];
+    if (addresses.includes(ip)) {
+      account.systemAddress = addresses;
+      return;
+    }
+
+    if (addresses.length >= this.maxTeams(account)) {
+      throw new ForbiddenException(
+        'System address limit reached for this account',
+      );
+    }
+
+    addresses.push(ip);
+    account.systemAddress = addresses;
+  }
+
+  // Empty / missing systemAddress → allow any IP. Otherwise IP must match.
+  private assertLoginIpAllowed(
+    account: Account,
+    ip: string | null,
+  ): void {
+    const addresses = account.systemAddress ?? [];
+    if (addresses.length === 0) {
+      return;
+    }
+
+    if (!ip || !addresses.includes(ip)) {
+      throw new ForbiddenException(
+        'Login not allowed from this system address',
+      );
+    }
   }
 
   private toResponse(account: Account): AccountResponse {

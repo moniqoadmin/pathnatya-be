@@ -1,11 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { AccountStatus } from '../entities/account.entity';
@@ -19,6 +22,18 @@ export class CreateAccountDto {
   })
   @IsSupportedPhoneNumber()
   phoneNumber: string;
+
+  @ApiPropertyOptional({
+    example: 2,
+    minimum: 1,
+    description:
+      'Number of teams / systems allowed for this account. Caps how many IPs can be stored in systemAddress. Defaults to 1 when null.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  numberOfTeams?: number;
 
   @ApiPropertyOptional({
     example: 'S3curePass!',

@@ -63,6 +63,20 @@ export class Account {
   @Column({ name: 'ip_address', type: 'varchar', length: 64, nullable: true })
   ipAddress: string | null;
 
+  // Max number of system IPs that may be registered for this account.
+  // Null is treated as 1 at runtime.
+  @Column({ name: 'number_of_teams', type: 'int', nullable: true })
+  numberOfTeams: number | null;
+
+  // Registered system IPs (one per team). Length is capped by numberOfTeams.
+  @Column({
+    name: 'system_address',
+    type: 'text',
+    array: true,
+    nullable: true,
+  })
+  systemAddress: string[] | null;
+
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
