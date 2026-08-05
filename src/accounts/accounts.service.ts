@@ -212,7 +212,7 @@ export class AccountsService {
     }
 
     if (account.setPassword || !account.passwordHash) {
-      throw new UnauthorizedException('Invalid Credentials');
+      throw new UnauthorizedException('Invalid credentials');
     }
 
     const passwordMatches = await verifyPassword(
@@ -220,7 +220,7 @@ export class AccountsService {
       account.passwordHash,
     );
     if (!passwordMatches) {
-      throw new UnauthorizedException('Invalid Credentials');
+      throw new UnauthorizedException('Invalid credentials. If you have forgotten your password, please contact Jababdar Bhai.');
     }
 
     const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
@@ -423,7 +423,7 @@ export class AccountsService {
 
     if (!ip || !addresses.includes(ip)) {
       throw new ForbiddenException(
-        'Login not allowed from this system, use the same system as the one used the first time',
+        'Login not allowed from this system, use the same system as the one used the first time. If the system is not available, please contact Jababdar Bhai.',
       );
     }
   }
