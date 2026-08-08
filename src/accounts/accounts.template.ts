@@ -6,6 +6,7 @@ export interface TemplateColumn {
     | 'phoneNumber'
     | 'password'
     | 'status'
+    | 'isOffline'
     | 'country'
     | 'sanghat'
     | 'jilha'
@@ -19,6 +20,7 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
   { header: 'phoneNumber', field: 'phoneNumber' },
   { header: 'password', field: 'password' },
   { header: 'status', field: 'status' },
+  { header: 'isOffline', field: 'isOffline' },
   { header: 'country', field: 'country' },
   { header: 'sanghat', field: 'sanghat' },
   { header: 'jilha', field: 'jilha' },

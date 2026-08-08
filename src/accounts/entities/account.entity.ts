@@ -32,6 +32,9 @@ export class Account {
   @Column({ name: 'set_password', type: 'boolean', default: true })
   setPassword: boolean;
 
+  @Column({ name: 'is_offline', type: 'boolean', default: false })
+  isOffline: boolean;
+
   @Column({
     type: 'enum',
     enum: AccountStatus,

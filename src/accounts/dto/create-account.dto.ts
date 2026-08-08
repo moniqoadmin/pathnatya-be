@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -54,6 +55,15 @@ export class CreateAccountDto {
   @IsOptional()
   @IsEnum(AccountStatus)
   status?: AccountStatus;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description: 'Whether this account is offline-only.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isOffline?: boolean;
 
   @ApiPropertyOptional({ example: 'India' })
   @IsOptional()

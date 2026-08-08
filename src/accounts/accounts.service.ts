@@ -81,6 +81,7 @@ export class AccountsService {
       // setPassword is true when the account has no password yet.
       setPassword: !hasPassword,
       status: createAccountDto.status,
+      isOffline: createAccountDto.isOffline ?? false,
       country: createAccountDto.country ?? null,
       sanghat: createAccountDto.sanghat ?? null,
       jilha: createAccountDto.jilha ?? null,
@@ -122,6 +123,9 @@ export class AccountsService {
     }
     if (updateAccountDto.status !== undefined) {
       account.status = updateAccountDto.status;
+    }
+    if (updateAccountDto.isOffline !== undefined) {
+      account.isOffline = updateAccountDto.isOffline;
     }
     if (updateAccountDto.country !== undefined) {
       account.country = updateAccountDto.country;
@@ -341,11 +345,23 @@ export class AccountsService {
     }
 
     const password = values.password?.trim();
+    const isOfflineRaw = values.isOffline?.trim().toLowerCase();
+    let isOffline: boolean | undefined;
+    if (isOfflineRaw) {
+      if (['true', '1', 'yes'].includes(isOfflineRaw)) {
+        isOffline = true;
+      } else if (['false', '0', 'no'].includes(isOfflineRaw)) {
+        isOffline = false;
+      } else {
+        throw new Error('isOffline must be true or false');
+      }
+    }
 
     await this.create({
       phoneNumber,
       password: password || undefined,
       status: (status as AccountStatus) || undefined,
+      isOffline,
       country: values.country?.trim() || undefined,
       sanghat: values.sanghat?.trim() || undefined,
       jilha: values.jilha?.trim() || undefined,
