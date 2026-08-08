@@ -65,6 +65,16 @@ export class CreateAccountDto {
   @IsBoolean()
   isOffline?: boolean;
 
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description:
+      'When true, the account cannot authenticate: check-phone, login and set-password all fail.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isLoginDisabled?: boolean;
+
   @ApiPropertyOptional({ example: 'India' })
   @IsOptional()
   @IsString()

@@ -25,6 +25,10 @@ import { isSupportedPhoneNumber } from './validators/supported-phone-number.vali
 // Account without the sensitive passwordHash field, used in API responses.
 export type AccountResponse = Omit<Account, 'passwordHash'>;
 
+// Returned whenever a login-disabled account attempts to authenticate.
+const LOGIN_DISABLED_MESSAGE =
+  'Login has been disabled for this account. Please contact your Jababdar Bhai.';
+
 export interface LoginResponse {
   account: AccountResponse;
   token: string;
@@ -82,6 +86,7 @@ export class AccountsService {
       setPassword: !hasPassword,
       status: createAccountDto.status,
       isOffline: createAccountDto.isOffline ?? false,
+      isLoginDisabled: createAccountDto.isLoginDisabled ?? false,
       country: createAccountDto.country ?? null,
       sanghat: createAccountDto.sanghat ?? null,
       jilha: createAccountDto.jilha ?? null,
@@ -127,6 +132,9 @@ export class AccountsService {
     if (updateAccountDto.isOffline !== undefined) {
       account.isOffline = updateAccountDto.isOffline;
     }
+    if (updateAccountDto.isLoginDisabled !== undefined) {
+      account.isLoginDisabled = updateAccountDto.isLoginDisabled;
+    }
     if (updateAccountDto.country !== undefined) {
       account.country = updateAccountDto.country;
     }
@@ -168,6 +176,10 @@ export class AccountsService {
       return { exists: false, needsPassword: false };
     }
 
+    if (account.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+    }
+
     return {
       exists: true,
       needsPassword: account.setPassword || !account.passwordHash,
@@ -183,6 +195,10 @@ export class AccountsService {
     });
     if (!account) {
       throw new NotFoundException('User not found');
+    }
+
+    if (account.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
     const resolvedIp =
@@ -213,6 +229,10 @@ export class AccountsService {
     });
     if (!account) {
       throw new NotFoundException('User not found');
+    }
+
+    if (account.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
     if (account.setPassword || !account.passwordHash) {
@@ -345,23 +365,18 @@ export class AccountsService {
     }
 
     const password = values.password?.trim();
-    const isOfflineRaw = values.isOffline?.trim().toLowerCase();
-    let isOffline: boolean | undefined;
-    if (isOfflineRaw) {
-      if (['true', '1', 'yes'].includes(isOfflineRaw)) {
-        isOffline = true;
-      } else if (['false', '0', 'no'].includes(isOfflineRaw)) {
-        isOffline = false;
-      } else {
-        throw new Error('isOffline must be true or false');
-      }
-    }
+    const isOffline = this.parseOptionalBoolean(values.isOffline, 'isOffline');
+    const isLoginDisabled = this.parseOptionalBoolean(
+      values.isLoginDisabled,
+      'isLoginDisabled',
+    );
 
     await this.create({
       phoneNumber,
       password: password || undefined,
       status: (status as AccountStatus) || undefined,
       isOffline,
+      isLoginDisabled,
       country: values.country?.trim() || undefined,
       sanghat: values.sanghat?.trim() || undefined,
       jilha: values.jilha?.trim() || undefined,
@@ -370,6 +385,25 @@ export class AccountsService {
       kendra: values.kendra?.trim() || undefined,
       sanchalakName: values.sanchalakName?.trim() || undefined,
     });
+  }
+
+  // Parses an optional truthy/falsy cell value from the bulk-upload sheet.
+  // Returns undefined when blank so account defaults apply.
+  private parseOptionalBoolean(
+    raw: string | undefined,
+    fieldName: string,
+  ): boolean | undefined {
+    const value = raw?.trim().toLowerCase();
+    if (!value) {
+      return undefined;
+    }
+    if (['true', '1', 'yes'].includes(value)) {
+      return true;
+    }
+    if (['false', '0', 'no'].includes(value)) {
+      return false;
+    }
+    throw new Error(`${fieldName} must be true or false`);
   }
 
   private cellToString(value: ExcelJS.CellValue): string {

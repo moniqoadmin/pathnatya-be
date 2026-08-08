@@ -35,6 +35,11 @@ export class Account {
   @Column({ name: 'is_offline', type: 'boolean', default: false })
   isOffline: boolean;
 
+  // When true, the account is blocked from authenticating: check-phone,
+  // login and set-password all reject regardless of credentials.
+  @Column({ name: 'is_login_disabled', type: 'boolean', default: false })
+  isLoginDisabled: boolean;
+
   @Column({
     type: 'enum',
     enum: AccountStatus,
