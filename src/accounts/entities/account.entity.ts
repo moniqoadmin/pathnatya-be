@@ -12,6 +12,13 @@ export enum AccountStatus {
   SUSPENDED = 'suspended',
 }
 
+export enum AccountRole {
+  USER = 'User',
+  ADMIN = 'Admin',
+  SUPER_ADMIN = 'SuperAdmin',
+  DEVELOPER = 'Developer',
+}
+
 @Entity('accounts')
 export class Account {
   @PrimaryGeneratedColumn('uuid')
@@ -46,6 +53,13 @@ export class Account {
     default: AccountStatus.ACTIVE,
   })
   status: AccountStatus;
+
+  @Column({
+    type: 'enum',
+    enum: AccountRole,
+    default: AccountRole.USER,
+  })
+  role: AccountRole;
 
   @Column({ type: 'varchar', length: 120, nullable: true })
   country: string | null;

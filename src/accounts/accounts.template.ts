@@ -1,35 +1,103 @@
 // Columns used for the bulk-upload Excel template. The `header` is what the
-// user sees in the downloaded file; `field` maps to the account property.
+// user sees in the downloaded file; `field` maps to the account property (or a
+// derived value such as countryCode / kendraType). `aliases` are normalized
+// header forms accepted on upload (whitespace collapsed, lowercased).
 export interface TemplateColumn {
   header: string;
   field:
-    | 'phoneNumber'
-    | 'password'
-    | 'status'
-    | 'isOffline'
-    | 'isLoginDisabled'
-    | 'country'
-    | 'sanghat'
-    | 'jilha'
     | 'taluka'
     | 'group'
+    | 'kendraType'
     | 'kendra'
-    | 'sanchalakName';
+    | 'sanchalakName'
+    | 'sanchalakOrAvekshak'
+    | 'countryCode'
+    | 'phoneNumber'
+    | 'numberOfTeams'
+    | 'role';
+  aliases: string[];
 }
 
 export const TEMPLATE_COLUMNS: TemplateColumn[] = [
-  { header: 'phoneNumber', field: 'phoneNumber' },
-  { header: 'password', field: 'password' },
-  { header: 'status', field: 'status' },
-  { header: 'isOffline', field: 'isOffline' },
-  { header: 'isLoginDisabled', field: 'isLoginDisabled' },
-  { header: 'country', field: 'country' },
-  { header: 'sanghat', field: 'sanghat' },
-  { header: 'jilha', field: 'jilha' },
-  { header: 'taluka', field: 'taluka' },
-  { header: 'group', field: 'group' },
-  { header: 'kendra', field: 'kendra' },
-  { header: 'sanchalakName', field: 'sanchalakName' },
+  {
+    header: 'Taluka Name',
+    field: 'taluka',
+    aliases: ['taluka name', 'taluka'],
+  },
+  {
+    header: 'Group Name',
+    field: 'group',
+    aliases: ['group name', 'group'],
+  },
+  {
+    header: 'Yuva Kendra or DPC',
+    field: 'kendraType',
+    aliases: ['yuva kendra or dpc'],
+  },
+  {
+    header: 'Yuva Kendra or DPC Name',
+    field: 'kendra',
+    aliases: ['yuva kendra or dpc name', 'kendra'],
+  },
+  {
+    header: 'Sanchalak Name / Avekshak Name',
+    field: 'sanchalakName',
+    aliases: [
+      'sanchalak name / avekshak name',
+      'sanchalak name /avekshak name',
+      'sanchalak name /avekshak name (only 1 per yuva kendra)',
+      'sanchalak name / avekshak name (only 1 per yuva kendra)',
+      'sanchalakname',
+    ],
+  },
+  {
+    // Kept for compatibility with existing sheets. Not used as AccountRole.
+    header: 'Sanchalak/Avekshak S/A',
+    field: 'sanchalakOrAvekshak',
+    aliases: ['sanchalak/avekshak s/a'],
+  },
+  {
+    header: 'Country Code',
+    field: 'countryCode',
+    aliases: ['country code', 'country code eg: 91 or 44 or 1'],
+  },
+  {
+    header: 'Mobile Number',
+    field: 'phoneNumber',
+    aliases: [
+      'mobile number',
+      'mobile number ex: 9999999999',
+      'phonenumber',
+      'phone number',
+    ],
+  },
+  {
+    header: 'No. of Teams Expected',
+    field: 'numberOfTeams',
+    aliases: [
+      'no. of teams expected',
+      'no of teams expected',
+      'number of teams',
+      'numberofteams',
+    ],
+  },
+  {
+    header: 'role',
+    field: 'role',
+    aliases: ['role'],
+  },
 ];
 
 export const TEMPLATE_SHEET_NAME = 'accounts';
+
+// Collapse newlines / extra spaces and lowercase for header matching.
+export function normalizeHeader(header: string): string {
+  return header.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Maps dialing codes from the sheet to Account.country values.
+export const COUNTRY_CODE_TO_NAME: Record<string, string> = {
+  '91': 'India',
+  '44': 'UK',
+  '1': 'US',
+};

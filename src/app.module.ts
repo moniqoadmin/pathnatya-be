@@ -12,6 +12,7 @@ import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { PayloadCryptoModule } from './crypto/payload-crypto.module';
+import { LogsModule } from './logs/logs.module';
 import { VideosModule } from './videos/videos.module';
 
 function loadTestKeyMatches(
@@ -79,6 +80,7 @@ function loadTestKeyMatches(
     }),
     HealthModule,
     AccountsModule,
+    LogsModule,
     VideosModule,
   ],
   controllers: [AppController],

@@ -12,7 +12,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { AccountStatus } from '../entities/account.entity';
+import { AccountRole, AccountStatus } from '../entities/account.entity';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
 
 export class CreateAccountDto {
@@ -55,6 +55,16 @@ export class CreateAccountDto {
   @IsOptional()
   @IsEnum(AccountStatus)
   status?: AccountStatus;
+
+  @ApiPropertyOptional({
+    enum: AccountRole,
+    default: AccountRole.USER,
+    description:
+      'Account role. Defaults to User when omitted. Allowed: User, Admin, SuperAdmin, Developer.',
+  })
+  @IsOptional()
+  @IsEnum(AccountRole)
+  role?: AccountRole;
 
   @ApiPropertyOptional({
     example: false,

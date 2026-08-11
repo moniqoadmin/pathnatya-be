@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { Account, AccountStatus } from './entities/account.entity';
+import { Account, AccountRole, AccountStatus } from './entities/account.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
@@ -17,8 +17,10 @@ import { SetPasswordDto } from './dto/set-password.dto';
 import { hashPassword, verifyPassword } from './password.util';
 import { JweService } from './jwe.service';
 import {
+  COUNTRY_CODE_TO_NAME,
   TEMPLATE_COLUMNS,
   TEMPLATE_SHEET_NAME,
+  normalizeHeader,
 } from './accounts.template';
 import { isSupportedPhoneNumber } from './validators/supported-phone-number.validator';
 
@@ -85,6 +87,7 @@ export class AccountsService {
       // setPassword is true when the account has no password yet.
       setPassword: !hasPassword,
       status: createAccountDto.status,
+      role: createAccountDto.role ?? AccountRole.USER,
       isOffline: createAccountDto.isOffline ?? false,
       isLoginDisabled: createAccountDto.isLoginDisabled ?? false,
       country: createAccountDto.country ?? null,
@@ -128,6 +131,9 @@ export class AccountsService {
     }
     if (updateAccountDto.status !== undefined) {
       account.status = updateAccountDto.status;
+    }
+    if (updateAccountDto.role !== undefined) {
+      account.role = updateAccountDto.role;
     }
     if (updateAccountDto.isOffline !== undefined) {
       account.isOffline = updateAccountDto.isOffline;
@@ -268,9 +274,10 @@ export class AccountsService {
     sheet.columns = TEMPLATE_COLUMNS.map((column) => ({
       header: column.header,
       key: column.field,
-      width: 22,
+      width: Math.max(18, Math.min(36, column.header.length + 4)),
     }));
     sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).alignment = { wrapText: true, vertical: 'middle' };
 
     const arrayBuffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(arrayBuffer);
@@ -291,15 +298,8 @@ export class AccountsService {
       throw new BadRequestException('The uploaded Excel file has no sheets');
     }
 
-    // Map each header cell to its column index based on the template headers.
-    const headerRow = sheet.getRow(1);
-    const headerToColumn = new Map<string, number>();
-    headerRow.eachCell((cell, colNumber) => {
-      const header = String(cell.value ?? '').trim();
-      if (header) {
-        headerToColumn.set(header, colNumber);
-      }
-    });
+    // Map template fields to column indexes using normalized / alias headers.
+    const fieldToColumn = this.resolveHeaderColumns(sheet.getRow(1));
 
     const result: BulkUploadResult = {
       totalRows: 0,
@@ -312,7 +312,7 @@ export class AccountsService {
       const row = sheet.getRow(rowNumber);
       const values = TEMPLATE_COLUMNS.reduce<Record<string, string>>(
         (acc, column) => {
-          const colIndex = headerToColumn.get(column.header);
+          const colIndex = fieldToColumn.get(column.field);
           acc[column.field] = colIndex
             ? this.cellToString(row.getCell(colIndex).value)
             : '';
@@ -346,64 +346,110 @@ export class AccountsService {
     return result;
   }
 
+  // Matches sheet headers (including multiline labels from existing files) to
+  // template fields. Longer aliases win when multiple columns could match.
+  private resolveHeaderColumns(
+    headerRow: ExcelJS.Row,
+  ): Map<string, number> {
+    const fieldToColumn = new Map<string, number>();
+
+    headerRow.eachCell((cell, colNumber) => {
+      const normalized = normalizeHeader(this.cellToString(cell.value));
+      if (!normalized) {
+        return;
+      }
+
+      let best:
+        | { field: (typeof TEMPLATE_COLUMNS)[number]['field']; aliasLen: number }
+        | undefined;
+
+      for (const column of TEMPLATE_COLUMNS) {
+        const candidates = [
+          normalizeHeader(column.header),
+          ...column.aliases.map(normalizeHeader),
+        ];
+        for (const alias of candidates) {
+          if (alias === normalized && (!best || alias.length > best.aliasLen)) {
+            best = { field: column.field, aliasLen: alias.length };
+          }
+        }
+      }
+
+      if (best && !fieldToColumn.has(best.field)) {
+        fieldToColumn.set(best.field, colNumber);
+      }
+    });
+
+    return fieldToColumn;
+  }
+
   private async createFromRow(values: Record<string, string>): Promise<void> {
-    const phoneNumber = values.phoneNumber?.trim();
+    // Excel may store mobiles as numbers; strip trailing .0 from stringified floats.
+    const phoneNumber = values.phoneNumber?.trim().replace(/\.0$/, '');
     if (!isSupportedPhoneNumber(phoneNumber)) {
       throw new Error(
-        'phoneNumber must be a 10-digit US, UK or India number with no country code',
+        'Mobile Number must be a 10-digit US, UK or India number with no country code',
       );
     }
 
-    const status = values.status?.trim().toLowerCase();
-    if (
-      status &&
-      !Object.values(AccountStatus).includes(status as AccountStatus)
-    ) {
+    const role = values.role?.trim();
+    if (role && !Object.values(AccountRole).includes(role as AccountRole)) {
       throw new Error(
-        `status must be one of: ${Object.values(AccountStatus).join(', ')}`,
+        `role must be one of: ${Object.values(AccountRole).join(', ')}`,
       );
     }
 
-    const password = values.password?.trim();
-    const isOffline = this.parseOptionalBoolean(values.isOffline, 'isOffline');
-    const isLoginDisabled = this.parseOptionalBoolean(
-      values.isLoginDisabled,
-      'isLoginDisabled',
+    const countryCode = values.countryCode?.trim().replace(/\.0$/, '');
+    let country: string | undefined;
+    if (countryCode) {
+      country = COUNTRY_CODE_TO_NAME[countryCode];
+      if (!country) {
+        throw new Error(
+          `Country Code must be one of: ${Object.keys(COUNTRY_CODE_TO_NAME).join(', ')}`,
+        );
+      }
+    }
+
+    const numberOfTeams = this.parseOptionalPositiveInt(
+      values.numberOfTeams,
+      'No. of Teams Expected',
     );
+
+    const kendraType = values.kendraType?.trim();
+    const metadata = kendraType ? { kendraType } : undefined;
 
     await this.create({
       phoneNumber,
-      password: password || undefined,
-      status: (status as AccountStatus) || undefined,
-      isOffline,
-      isLoginDisabled,
-      country: values.country?.trim() || undefined,
-      sanghat: values.sanghat?.trim() || undefined,
-      jilha: values.jilha?.trim() || undefined,
+      // No password column → setPassword stays true via create().
+      status: AccountStatus.ACTIVE,
+      role: (role as AccountRole) || AccountRole.USER,
+      isOffline: false,
+      isLoginDisabled: false,
+      country,
+      // sanghat / jilha left unset when the sheet has no such columns.
       taluka: values.taluka?.trim() || undefined,
       group: values.group?.trim() || undefined,
       kendra: values.kendra?.trim() || undefined,
       sanchalakName: values.sanchalakName?.trim() || undefined,
+      numberOfTeams,
+      metadata,
     });
   }
 
-  // Parses an optional truthy/falsy cell value from the bulk-upload sheet.
-  // Returns undefined when blank so account defaults apply.
-  private parseOptionalBoolean(
+  // Parses an optional positive integer cell. Blank → undefined (create default).
+  private parseOptionalPositiveInt(
     raw: string | undefined,
     fieldName: string,
-  ): boolean | undefined {
-    const value = raw?.trim().toLowerCase();
+  ): number | undefined {
+    const value = raw?.trim().replace(/\.0$/, '');
     if (!value) {
       return undefined;
     }
-    if (['true', '1', 'yes'].includes(value)) {
-      return true;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new Error(`${fieldName} must be an integer >= 1`);
     }
-    if (['false', '0', 'no'].includes(value)) {
-      return false;
-    }
-    throw new Error(`${fieldName} must be true or false`);
+    return parsed;
   }
 
   private cellToString(value: ExcelJS.CellValue): string {
@@ -412,7 +458,14 @@ export class AccountsService {
     }
     if (typeof value === 'object') {
       // Handles rich text / hyperlink / formula result cell objects.
-      const obj = value as { text?: string; result?: unknown };
+      const obj = value as {
+        text?: string;
+        result?: unknown;
+        richText?: Array<{ text?: string }>;
+      };
+      if (Array.isArray(obj.richText)) {
+        return obj.richText.map((part) => part.text ?? '').join('').trim();
+      }
       if (typeof obj.text === 'string') {
         return obj.text.trim();
       }
