@@ -47,6 +47,14 @@ export class Account {
   @Column({ name: 'is_login_disabled', type: 'boolean', default: false })
   isLoginDisabled: boolean;
 
+  // When true, the client should enforce DOM security checks for this account.
+  @Column({ name: 'dom_security', type: 'boolean', default: false })
+  domSecurity: boolean;
+
+  // When true, the client should enable chokidar filesystem watching.
+  @Column({ name: 'chokidar', type: 'boolean', default: false })
+  chokidar: boolean;
+
   @Column({
     type: 'enum',
     enum: AccountStatus,

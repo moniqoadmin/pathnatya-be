@@ -90,6 +90,8 @@ export class AccountsService {
       role: createAccountDto.role ?? AccountRole.USER,
       isOffline: createAccountDto.isOffline ?? false,
       isLoginDisabled: createAccountDto.isLoginDisabled ?? false,
+      domSecurity: createAccountDto.domSecurity ?? false,
+      chokidar: createAccountDto.chokidar ?? false,
       country: createAccountDto.country ?? null,
       sanghat: createAccountDto.sanghat ?? null,
       jilha: createAccountDto.jilha ?? null,
@@ -140,6 +142,12 @@ export class AccountsService {
     }
     if (updateAccountDto.isLoginDisabled !== undefined) {
       account.isLoginDisabled = updateAccountDto.isLoginDisabled;
+    }
+    if (updateAccountDto.domSecurity !== undefined) {
+      account.domSecurity = updateAccountDto.domSecurity;
+    }
+    if (updateAccountDto.chokidar !== undefined) {
+      account.chokidar = updateAccountDto.chokidar;
     }
     if (updateAccountDto.country !== undefined) {
       account.country = updateAccountDto.country;
@@ -425,6 +433,8 @@ export class AccountsService {
       role: (role as AccountRole) || AccountRole.USER,
       isOffline: false,
       isLoginDisabled: false,
+      domSecurity: true,
+      chokidar: true,
       country,
       // sanghat / jilha left unset when the sheet has no such columns.
       taluka: values.taluka?.trim() || undefined,

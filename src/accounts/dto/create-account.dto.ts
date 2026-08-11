@@ -85,6 +85,26 @@ export class CreateAccountDto {
   @IsBoolean()
   isLoginDisabled?: boolean;
 
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description:
+      'When true, the client should enforce DOM security checks.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  domSecurity?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description:
+      'When true, the client should enable chokidar filesystem watching.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  chokidar?: boolean;
+
   @ApiPropertyOptional({ example: 'India' })
   @IsOptional()
   @IsString()
