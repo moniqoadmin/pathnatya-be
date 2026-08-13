@@ -2,12 +2,13 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { Account, AccountRole, AccountStatus } from './entities/account.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -45,8 +46,16 @@ export interface CheckPhoneResult {
 
 export interface BulkUploadError {
   row: number;
+  sn: string | null;
+  country: string | null;
+  sanghat: string | null;
+  jilha: string | null;
+  taluka: string | null;
+  group: string | null;
+  kendra: string | null;
+  sanchalakName: string | null;
   phoneNumber: string | null;
-  message: string;
+  error: string;
 }
 
 export interface BulkUploadResult {
@@ -292,7 +301,8 @@ export class AccountsService {
   }
 
   // Parses an uploaded .xlsx file and creates one account per data row.
-  // Invalid rows are skipped and reported back in the result.
+  // Invalid / duplicate rows are skipped and collected in `errors` (returned
+  // after every row has been processed).
   async bulkUpload(buffer: Buffer): Promise<BulkUploadResult> {
     const workbook = new ExcelJS.Workbook();
     try {
@@ -301,13 +311,15 @@ export class AccountsService {
       throw new BadRequestException('Could not read the uploaded Excel file');
     }
 
-    const sheet = workbook.worksheets[0];
-    if (!sheet) {
-      throw new BadRequestException('The uploaded Excel file has no sheets');
-    }
+    const { sheet, headerRowNumber, fieldToColumn } =
+      this.findUploadSheet(workbook);
 
-    // Map template fields to column indexes using normalized / alias headers.
-    const fieldToColumn = this.resolveHeaderColumns(sheet.getRow(1));
+    const existingAccounts = await this.accountsRepository.find({
+      select: ['phoneNumber'],
+    });
+    const existingPhones = new Set(
+      existingAccounts.map((account) => account.phoneNumber),
+    );
 
     const result: BulkUploadResult = {
       totalRows: 0,
@@ -316,7 +328,11 @@ export class AccountsService {
       errors: [],
     };
 
-    for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
+    for (
+      let rowNumber = headerRowNumber + 1;
+      rowNumber <= sheet.rowCount;
+      rowNumber++
+    ) {
       const row = sheet.getRow(rowNumber);
       const values = TEMPLATE_COLUMNS.reduce<Record<string, string>>(
         (acc, column) => {
@@ -329,29 +345,74 @@ export class AccountsService {
         {},
       );
 
-      // Skip fully empty rows.
+      // Skip fully empty rows (title / padding rows below the header).
       const isEmpty = Object.values(values).every((v) => v === '');
       if (isEmpty) {
         continue;
       }
 
       result.totalRows += 1;
-      const phoneNumber = values.phoneNumber || null;
 
       try {
-        await this.createFromRow(values);
+        const phoneNumber = await this.createFromRow(values, existingPhones);
+        existingPhones.add(phoneNumber);
         result.created += 1;
       } catch (error) {
         result.failed += 1;
-        result.errors.push({
-          row: rowNumber,
-          phoneNumber,
-          message: error instanceof Error ? error.message : 'Unknown error',
-        });
+        result.errors.push(
+          this.buildRowError(rowNumber, values, this.toErrorMessage(error)),
+        );
       }
     }
 
     return result;
+  }
+
+  // Picks the worksheet that actually holds account rows (e.g. "Kendra" in
+  // nivedan files, not the Sanghat/Zilla summary sheets) and locates the
+  // header row even when title rows sit above it.
+  private findUploadSheet(workbook: ExcelJS.Workbook): {
+    sheet: ExcelJS.Worksheet;
+    headerRowNumber: number;
+    fieldToColumn: Map<string, number>;
+  } {
+    if (workbook.worksheets.length === 0) {
+      throw new BadRequestException('The uploaded Excel file has no sheets');
+    }
+
+    let best:
+      | {
+          sheet: ExcelJS.Worksheet;
+          headerRowNumber: number;
+          fieldToColumn: Map<string, number>;
+          score: number;
+        }
+      | undefined;
+
+    for (const sheet of workbook.worksheets) {
+      const scanLimit = Math.min(40, sheet.rowCount);
+      for (let rowNumber = 1; rowNumber <= scanLimit; rowNumber++) {
+        const fieldToColumn = this.resolveHeaderColumns(sheet.getRow(rowNumber));
+        if (!fieldToColumn.has('phoneNumber')) {
+          continue;
+        }
+
+        const isKendraSheet = sheet.name.trim().toLowerCase() === 'kendra';
+        const score = fieldToColumn.size + (isKendraSheet ? 100 : 0);
+        if (!best || score > best.score) {
+          best = { sheet, headerRowNumber: rowNumber, fieldToColumn, score };
+        }
+        break;
+      }
+    }
+
+    if (!best) {
+      throw new BadRequestException(
+        'Could not find a sheet with a Mobile Number column',
+      );
+    }
+
+    return best;
   }
 
   // Matches sheet headers (including multiline labels from existing files) to
@@ -391,13 +452,20 @@ export class AccountsService {
     return fieldToColumn;
   }
 
-  private async createFromRow(values: Record<string, string>): Promise<void> {
-    // Excel may store mobiles as numbers; strip trailing .0 from stringified floats.
-    const phoneNumber = values.phoneNumber?.trim().replace(/\.0$/, '');
+  private async createFromRow(
+    values: Record<string, string>,
+    existingPhones: Set<string>,
+  ): Promise<string> {
+    const phoneNumber = this.normalizePhone(values.phoneNumber);
+    if (!phoneNumber) {
+      throw new Error('Mobile Number is missing');
+    }
     if (!isSupportedPhoneNumber(phoneNumber)) {
-      throw new Error(
-        'Mobile Number must be a 10-digit US, UK or India number with no country code',
-      );
+      throw new Error('phone number is not 10 digits');
+    }
+
+    if (existingPhones.has(phoneNumber)) {
+      throw new Error('number already exists');
     }
 
     const role = values.role?.trim();
@@ -407,16 +475,7 @@ export class AccountsService {
       );
     }
 
-    const countryCode = values.countryCode?.trim().replace(/\.0$/, '');
-    let country: string | undefined;
-    if (countryCode) {
-      country = COUNTRY_CODE_TO_NAME[countryCode];
-      if (!country) {
-        throw new Error(
-          `Country Code must be one of: ${Object.keys(COUNTRY_CODE_TO_NAME).join(', ')}`,
-        );
-      }
-    }
+    const country = this.resolveCountry(values);
 
     const numberOfTeams = this.parseOptionalPositiveInt(
       values.numberOfTeams,
@@ -436,7 +495,8 @@ export class AccountsService {
       domSecurity: true,
       chokidar: true,
       country,
-      // sanghat / jilha left unset when the sheet has no such columns.
+      sanghat: values.sanghat?.trim() || undefined,
+      jilha: values.jilha?.trim() || undefined,
       taluka: values.taluka?.trim() || undefined,
       group: values.group?.trim() || undefined,
       kendra: values.kendra?.trim() || undefined,
@@ -444,6 +504,86 @@ export class AccountsService {
       numberOfTeams,
       metadata,
     });
+
+    return phoneNumber;
+  }
+
+  private resolveCountry(values: Record<string, string>): string | undefined {
+    const countryName = values.country?.trim();
+    if (countryName) {
+      return countryName;
+    }
+
+    const countryCode = values.countryCode?.trim().replace(/\.0$/, '');
+    if (!countryCode) {
+      return undefined;
+    }
+
+    const mapped = COUNTRY_CODE_TO_NAME[countryCode];
+    if (!mapped) {
+      throw new Error(
+        `Country Code must be one of: ${Object.keys(COUNTRY_CODE_TO_NAME).join(', ')}`,
+      );
+    }
+    return mapped;
+  }
+
+  private normalizePhone(raw: string | undefined): string {
+    return (raw ?? '').trim().replace(/\.0$/, '');
+  }
+
+  private buildRowError(
+    rowNumber: number,
+    values: Record<string, string>,
+    error: string,
+  ): BulkUploadError {
+    return {
+      row: rowNumber,
+      sn: values.sn?.trim() || null,
+      country: values.country?.trim() || this.countryFromCode(values.countryCode),
+      sanghat: values.sanghat?.trim() || null,
+      jilha: values.jilha?.trim() || null,
+      taluka: values.taluka?.trim() || null,
+      group: values.group?.trim() || null,
+      kendra: values.kendra?.trim() || null,
+      sanchalakName: values.sanchalakName?.trim() || null,
+      phoneNumber: this.normalizePhone(values.phoneNumber) || null,
+      error,
+    };
+  }
+
+  private countryFromCode(raw: string | undefined): string | null {
+    const countryCode = raw?.trim().replace(/\.0$/, '');
+    if (!countryCode) {
+      return null;
+    }
+    return COUNTRY_CODE_TO_NAME[countryCode] ?? countryCode;
+  }
+
+  private toErrorMessage(error: unknown): string {
+    if (error instanceof ConflictException) {
+      return 'number already exists';
+    }
+    if (
+      error instanceof QueryFailedError &&
+      (error as QueryFailedError & { code?: string }).code === '23505'
+    ) {
+      return 'number already exists';
+    }
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (typeof response === 'object' && response !== null && 'message' in response) {
+        const message = (response as { message: string | string[] }).message;
+        return Array.isArray(message) ? message.join('; ') : String(message);
+      }
+    }
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return 'Unknown error';
   }
 
   // Parses an optional positive integer cell. Blank → undefined (create default).
@@ -471,8 +611,14 @@ export class AccountsService {
       const obj = value as {
         text?: string;
         result?: unknown;
+        formula?: unknown;
+        sharedFormula?: unknown;
         richText?: Array<{ text?: string }>;
       };
+      // Nivedan files put SUM totals in the first data row — skip formulas.
+      if (obj.formula !== undefined || obj.sharedFormula !== undefined) {
+        return '';
+      }
       if (Array.isArray(obj.richText)) {
         return obj.richText.map((part) => part.text ?? '').join('').trim();
       }

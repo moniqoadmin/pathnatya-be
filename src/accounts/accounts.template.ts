@@ -5,6 +5,10 @@
 export interface TemplateColumn {
   header: string;
   field:
+    | 'sn'
+    | 'country'
+    | 'sanghat'
+    | 'jilha'
     | 'taluka'
     | 'group'
     | 'kendraType'
@@ -19,6 +23,26 @@ export interface TemplateColumn {
 }
 
 export const TEMPLATE_COLUMNS: TemplateColumn[] = [
+  {
+    header: 'SN',
+    field: 'sn',
+    aliases: ['sn', 's.n.', 'sr no', 'sr. no.', 'serial number'],
+  },
+  {
+    header: 'Country Name',
+    field: 'country',
+    aliases: ['country name', 'country'],
+  },
+  {
+    header: 'Sanghat Name',
+    field: 'sanghat',
+    aliases: ['sanghat name', 'sanghat'],
+  },
+  {
+    header: 'Jilla Name',
+    field: 'jilha',
+    aliases: ['jilla name', 'jilha name', 'zilla name', 'jilla', 'jilha', 'zilla'],
+  },
   {
     header: 'Taluka Name',
     field: 'taluka',
@@ -95,7 +119,8 @@ export function normalizeHeader(header: string): string {
   return header.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-// Maps dialing codes from the sheet to Account.country values.
+// Maps dialing codes from the sheet to Account.country values when Country
+// Name is not present.
 export const COUNTRY_CODE_TO_NAME: Record<string, string> = {
   '91': 'India',
   '44': 'UK',

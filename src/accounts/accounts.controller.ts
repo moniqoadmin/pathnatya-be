@@ -84,7 +84,8 @@ export class AccountsController {
 
   @Post('bulk/upload')
   @ApiOperation({
-    summary: 'Bulk create accounts from a filled-in .xlsx template.',
+    summary:
+      'Bulk create accounts from a filled-in .xlsx (nivedan or template). Duplicate / invalid phone numbers are skipped and returned in errors after all rows are processed.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
