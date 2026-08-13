@@ -12,6 +12,7 @@ import { QueryFailedError, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { Account, AccountRole, AccountStatus } from './entities/account.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
+import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
@@ -63,6 +64,14 @@ export interface BulkUploadResult {
   created: number;
   failed: number;
   errors: BulkUploadError[];
+}
+
+export interface PaginatedAccountsResponse {
+  data: AccountResponse[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 @Injectable()
@@ -117,11 +126,64 @@ export class AccountsService {
     return this.toResponse(saved);
   }
 
-  async findAll(): Promise<AccountResponse[]> {
-    const accounts = await this.accountsRepository.find({
-      order: { createdAt: 'DESC' },
-    });
-    return accounts.map((account) => this.toResponse(account));
+  async findAll(
+    callerId: string,
+    query: ListAccountsQueryDto,
+  ): Promise<PaginatedAccountsResponse> {
+    const caller = await this.getEntityOrFail(callerId);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const qb = this.accountsRepository
+      .createQueryBuilder('account')
+      .orderBy('account.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (caller.role === AccountRole.ADMIN) {
+      if (!caller.sanghat) {
+        throw new ForbiddenException(
+          'Admin account has no sanghat assigned',
+        );
+      }
+      qb.andWhere('LOWER(account.sanghat) = LOWER(:sanghat)', {
+        sanghat: caller.sanghat,
+      });
+      qb.andWhere('account.role = :userRole', {
+        userRole: AccountRole.USER,
+      });
+    } else if (
+      caller.role === AccountRole.SUPER_ADMIN ||
+      caller.role === AccountRole.DEVELOPER
+    ) {
+      if (query.role) {
+        qb.andWhere('account.role = :role', { role: query.role });
+      }
+    } else {
+      throw new ForbiddenException(
+        'Only Admin and SuperAdmin can list accounts',
+      );
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      const sanitized = search.replace(/[%_\\]/g, '');
+      if (sanitized) {
+        qb.andWhere(
+          '(account.phoneNumber ILIKE :search OR account.kendra ILIKE :search)',
+          { search: `%${sanitized}%` },
+        );
+      }
+    }
+
+    const [accounts, total] = await qb.getManyAndCount();
+    return {
+      data: accounts.map((account) => this.toResponse(account)),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findOne(id: string): Promise<AccountResponse> {

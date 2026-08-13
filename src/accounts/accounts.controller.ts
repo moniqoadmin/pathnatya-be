@@ -11,6 +11,8 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
+  Req,
   Res,
   UploadedFile,
   UseGuards,
@@ -26,9 +28,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { AccountsService } from './accounts.service';
 import { CreateAccountDto } from './dto/create-account.dto';
+import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
@@ -38,6 +41,7 @@ import { AppKeyGuard } from './guards/app-key.guard';
 import { Public } from './decorators/public.decorator';
 import { JweService } from './jwe.service';
 import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorator';
+import { AccountRole } from './entities/account.entity';
 
 /** Stricter per-IP limit for unauthenticated / credential endpoints. */
 const AuthThrottle = () => Throttle({ default: { limit: 10, ttl: 60_000 } });
@@ -160,10 +164,19 @@ export class AccountsController {
     return { keys: this.jweService.getLoginKeys() };
   }
 
+  @Get('roles')
+  @ApiOperation({ summary: 'Return all account roles.' })
+  getRoles() {
+    return { roles: Object.values(AccountRole) };
+  }
+
   @Get()
-  @ApiOperation({ summary: 'List all accounts' })
-  findAll() {
-    return this.accountsService.findAll();
+  @ApiOperation({
+    summary:
+      'List accounts (paginated). Admins see Users in their sanghat only. SuperAdmins see all accounts and may filter by role. Search matches phone number or kendra name.',
+  })
+  findAll(@Req() req: Request, @Query() query: ListAccountsQueryDto) {
+    return this.accountsService.findAll(req.user!.sub, query);
   }
 
   @Get(':id')
