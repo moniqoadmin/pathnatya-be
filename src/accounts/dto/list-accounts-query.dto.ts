@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -12,6 +13,20 @@ import {
 import { AccountRole } from '../entities/account.entity';
 
 export class ListAccountsQueryDto {
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'Optional client flag (e.g. admin UI). Accepted when present; not required.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  admin?: boolean;
+
   @ApiPropertyOptional({
     example: 1,
     minimum: 1,

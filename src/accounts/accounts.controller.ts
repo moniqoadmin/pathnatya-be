@@ -173,7 +173,7 @@ export class AccountsController {
   @Get()
   @ApiOperation({
     summary:
-      'List accounts (paginated). Admins see Users in their sanghat only. SuperAdmins see all accounts and may filter by role. Search matches phone number or kendra name.',
+      'List accounts (paginated). Optional admin query flag. Admins see Users in their sanghat only. SuperAdmins see all accounts and may filter by role. Search matches phone number or kendra name.',
   })
   findAll(@Req() req: Request, @Query() query: ListAccountsQueryDto) {
     return this.accountsService.findAll(req.user!.sub, query);
