@@ -26,6 +26,7 @@ import {
   OptionalAdminQueryDto,
 } from './dto/list-issues-query.dto';
 import { ResolveIssueDto } from './dto/resolve-issue.dto';
+import { UpdateIssueStatusDto } from './dto/update-issue-status.dto';
 import { IssuesService } from './issues.service';
 
 @ApiTags('issues')
@@ -65,7 +66,7 @@ export class IssuesController {
   @Get('pending')
   @ApiOperation({
     summary:
-      'List open and in-progress issues. Optional admin query flag. SuperAdmin and Developer only.',
+      'List issues for SuperAdmin and Developer. Optional status filter (open, in_progress, resolved, closed). Optional admin query flag.',
   })
   findPending(@Req() req: Request, @Query() query: ListIssuesQueryDto) {
     return this.issuesService.findPending(req.user!.sub, query);
@@ -99,6 +100,24 @@ export class IssuesController {
       id,
       req.user!.sub,
       addIssueCommentDto,
+    );
+  }
+
+  @Patch(':id/status')
+  @ApiOperation({
+    summary:
+      'Set issue status to in_progress. Optional admin query flag. SuperAdmin and Developer only.',
+  })
+  updateStatus(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() _query: OptionalAdminQueryDto,
+    @Body() updateIssueStatusDto: UpdateIssueStatusDto,
+  ) {
+    return this.issuesService.updateStatus(
+      id,
+      req.user!.sub,
+      updateIssueStatusDto,
     );
   }
 

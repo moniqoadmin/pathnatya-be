@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IssueStatus } from '../entities/issue.entity';
 
 /** Optional `admin` query flag sent by the admin UI. */
 export class OptionalAdminQueryDto {
@@ -45,4 +46,13 @@ export class ListIssuesQueryDto extends OptionalAdminQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiPropertyOptional({
+    enum: IssueStatus,
+    description:
+      'Filter by status. SuperAdmin and Developer listing. Omit to return all statuses.',
+  })
+  @IsOptional()
+  @IsIn(Object.values(IssueStatus))
+  status?: IssueStatus;
 }

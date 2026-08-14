@@ -5,13 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsOrder, FindOptionsWhere, In, Repository } from 'typeorm';
+import { FindOptionsOrder, FindOptionsWhere, Repository } from 'typeorm';
 import { AccountsService } from '../accounts/accounts.service';
 import { AccountRole } from '../accounts/entities/account.entity';
 import { AddIssueCommentDto } from './dto/add-issue-comment.dto';
 import { CreateIssueDto } from './dto/create-issue.dto';
 import { ListIssuesQueryDto } from './dto/list-issues-query.dto';
 import { ResolveIssueDto } from './dto/resolve-issue.dto';
+import { UpdateIssueStatusDto } from './dto/update-issue-status.dto';
 import {
   Issue,
   IssueComment,
@@ -43,7 +44,6 @@ export type PaginatedIssuesResponse = {
   totalPages: number;
 };
 
-const PENDING_STATUSES = [IssueStatus.OPEN, IssueStatus.IN_PROGRESS];
 const RESOLVER_ROLES = new Set<AccountRole>([
   AccountRole.SUPER_ADMIN,
   AccountRole.DEVELOPER,
@@ -97,11 +97,16 @@ export class IssuesService {
     query: ListIssuesQueryDto,
   ): Promise<PaginatedIssuesResponse> {
     await this.assertResolver(callerId);
-    return this.paginate(
-      { status: In(PENDING_STATUSES) },
-      query,
-      { createdAt: 'ASC' },
-    );
+    const where: FindOptionsWhere<Issue> = query.status
+      ? { status: query.status }
+      : {};
+    const order: FindOptionsOrder<Issue> =
+      query.status === IssueStatus.RESOLVED ||
+      query.status === IssueStatus.CLOSED ||
+      !query.status
+        ? { createdAt: 'DESC' }
+        : { createdAt: 'ASC' };
+    return this.paginate(where, query, order);
   }
 
   async findOne(id: string, callerId: string): Promise<IssueResponse> {
@@ -127,6 +132,23 @@ export class IssuesService {
     };
 
     issue.comments = [...(issue.comments ?? []), comment];
+    const saved = await this.issuesRepository.save(issue);
+    return this.toResponse(saved);
+  }
+
+  async updateStatus(
+    id: string,
+    callerId: string,
+    dto: UpdateIssueStatusDto,
+  ): Promise<IssueResponse> {
+    await this.assertResolver(callerId);
+    const issue = await this.getEntityOrFail(id);
+
+    if (issue.status === dto.status) {
+      return this.toResponse(issue);
+    }
+
+    issue.status = dto.status;
     const saved = await this.issuesRepository.save(issue);
     return this.toResponse(saved);
   }
