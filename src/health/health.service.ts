@@ -33,4 +33,12 @@ export class HealthService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  now() {
+    const now = new Date();
+    return {
+      iso: now.toISOString(),
+      unixMs: now.getTime(),
+    };
+  }
 }

@@ -1,5 +1,5 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { HealthService } from './health.service';
 import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorator';
@@ -18,5 +18,13 @@ export class HealthController {
       throw new ServiceUnavailableException(result);
     }
     return result;
+  }
+
+  @Get('time')
+  @ApiOperation({
+    summary: 'Current server time in UTC (ISO-8601 and Unix milliseconds)',
+  })
+  now() {
+    return this.healthService.now();
   }
 }
