@@ -47,7 +47,10 @@ export class BulkAccountsUploadService {
     private readonly accountsRepository: Repository<Account>,
   ) {}
 
-  async bulkUpload(buffer: Buffer): Promise<BulkUploadResult> {
+  async bulkUpload(
+    buffer: Buffer,
+    onProgress?: (result: BulkUploadResult) => Promise<void>,
+  ): Promise<BulkUploadResult> {
     const workbook = new ExcelJS.Workbook();
     try {
       await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
@@ -119,6 +122,7 @@ export class BulkAccountsUploadService {
         start + BulkAccountsUploadService.BATCH_SIZE,
       );
       await this.insertBatch(batch, result);
+      await onProgress?.({ ...result, errors: [] });
     }
 
     return result;
@@ -242,7 +246,9 @@ export class BulkAccountsUploadService {
     for (const sheet of workbook.worksheets) {
       const scanLimit = Math.min(40, sheet.rowCount);
       for (let rowNumber = 1; rowNumber <= scanLimit; rowNumber++) {
-        const fieldToColumn = this.resolveHeaderColumns(sheet.getRow(rowNumber));
+        const fieldToColumn = this.resolveHeaderColumns(
+          sheet.getRow(rowNumber),
+        );
         if (!fieldToColumn.has('phoneNumber')) {
           continue;
         }
@@ -265,9 +271,7 @@ export class BulkAccountsUploadService {
     return best;
   }
 
-  private resolveHeaderColumns(
-    headerRow: ExcelJS.Row,
-  ): Map<string, number> {
+  private resolveHeaderColumns(headerRow: ExcelJS.Row): Map<string, number> {
     const fieldToColumn = new Map<string, number>();
 
     headerRow.eachCell((cell, colNumber) => {
@@ -277,7 +281,10 @@ export class BulkAccountsUploadService {
       }
 
       let best:
-        | { field: (typeof TEMPLATE_COLUMNS)[number]['field']; aliasLen: number }
+        | {
+            field: (typeof TEMPLATE_COLUMNS)[number]['field'];
+            aliasLen: number;
+          }
         | undefined;
 
       for (const column of TEMPLATE_COLUMNS) {
@@ -384,7 +391,10 @@ export class BulkAccountsUploadService {
         return '';
       }
       if (Array.isArray(obj.richText)) {
-        return obj.richText.map((part) => part.text ?? '').join('').trim();
+        return obj.richText
+          .map((part) => part.text ?? '')
+          .join('')
+          .trim();
       }
       if (typeof obj.text === 'string') {
         return obj.text.trim();

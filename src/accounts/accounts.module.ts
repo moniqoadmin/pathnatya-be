@@ -7,6 +7,8 @@ import { AccountsController } from './accounts.controller';
 import { JweService } from './jwe.service';
 import { JweAuthGuard } from './guards/jwe-auth.guard';
 import { AppKeyGuard } from './guards/app-key.guard';
+import { LoginProtectionService } from './login-protection.service';
+import { PasswordVerificationService } from './password-verification.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Account])],
@@ -17,7 +19,15 @@ import { AppKeyGuard } from './guards/app-key.guard';
     JweService,
     JweAuthGuard,
     AppKeyGuard,
+    LoginProtectionService,
+    PasswordVerificationService,
   ],
-  exports: [AccountsService, JweService, JweAuthGuard, AppKeyGuard],
+  exports: [
+    AccountsService,
+    BulkAccountsUploadService,
+    JweService,
+    JweAuthGuard,
+    AppKeyGuard,
+  ],
 })
 export class AccountsModule {}

@@ -15,6 +15,9 @@ import { PayloadCryptoModule } from './crypto/payload-crypto.module';
 import { LogsModule } from './logs/logs.module';
 import { VideosModule } from './videos/videos.module';
 import { IssuesModule } from './issues/issues.module';
+import { RedisModule } from './redis/redis.module';
+import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
+import { ImportsModule } from './imports/imports.module';
 
 function loadTestKeyMatches(
   provided: string | string[] | undefined,
@@ -31,12 +34,15 @@ function loadTestKeyMatches(
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RedisModule,
     PayloadCryptoModule,
     ThrottlerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
+      imports: [RedisModule],
+      inject: [ConfigService, RedisThrottlerStorage],
+      useFactory: (config: ConfigService, storage: RedisThrottlerStorage) => {
         const loadTestKey = config.get<string>('LOAD_TEST_KEY');
         return {
+          storage,
           skipIf: (context: ExecutionContext) => {
             const req = context.switchToHttp().getRequest<{
               headers: Record<string, string | string[] | undefined>;
@@ -49,17 +55,7 @@ function loadTestKeyMatches(
             const matched =
               !!loadTestKey &&
               loadTestKeyMatches(req.headers['x-load-test-key'], loadTestKey);
-            // Temporary: diagnose load-test throttle bypass (remove after verifying).
-            // eslint-disable-next-line no-console
-            console.log('[throttle-bypass]', {
-              method: req.method,
-              url: req.url,
-              loadTestKeyConfigured: !!loadTestKey,
-              headerPresent,
-              matched,
-              skip: matched,
-            });
-            return matched;
+            return config.get('NODE_ENV') !== 'production' && matched;
           },
           throttlers: [
             {
@@ -84,6 +80,7 @@ function loadTestKeyMatches(
     LogsModule,
     VideosModule,
     IssuesModule,
+    ImportsModule,
   ],
   controllers: [AppController],
   providers: [

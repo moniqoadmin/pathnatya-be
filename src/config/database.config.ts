@@ -26,5 +26,13 @@ export const buildDatabaseConfig = (
     synchronize: getEnv('DB_SYNCHRONIZE') === 'true',
     logging: getEnv('DB_LOGGING') === 'true',
     ssl: useSsl ? { rejectUnauthorized: false } : false,
+    extra: {
+      max: Number(getEnv('DB_POOL_MAX') ?? 20),
+      connectionTimeoutMillis: Number(
+        getEnv('DB_CONNECTION_TIMEOUT_MS') ?? 5_000,
+      ),
+      idleTimeoutMillis: Number(getEnv('DB_IDLE_TIMEOUT_MS') ?? 30_000),
+      statement_timeout: Number(getEnv('DB_STATEMENT_TIMEOUT_MS') ?? 30_000),
+    },
   };
 };
