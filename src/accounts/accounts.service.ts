@@ -191,16 +191,49 @@ export class AccountsService {
     return this.toResponse(account);
   }
 
+  private static readonly ADMIN_EDITABLE_FIELDS = new Set([
+    'setPassword',
+    'isOffline',
+    'isLoginDisabled',
+    'domSecurity',
+    'chokidar',
+    'numberOfTeams',
+  ]);
+
   async update(
+    callerId: string,
     id: string,
     updateAccountDto: UpdateAccountDto,
   ): Promise<AccountResponse> {
+    const caller = await this.getEntityOrFail(callerId);
     const account = await this.getEntityOrFail(id);
+    this.assertCanEditAccount(caller, account, updateAccountDto);
+
+    if (
+      updateAccountDto.password !== undefined &&
+      updateAccountDto.setPassword === true
+    ) {
+      throw new BadRequestException(
+        'Cannot set a password and setPassword=true in the same request',
+      );
+    }
 
     if (updateAccountDto.password !== undefined) {
       account.passwordHash = await hashPassword(updateAccountDto.password);
       // A password has now been set.
       account.setPassword = false;
+    }
+    if (updateAccountDto.setPassword !== undefined) {
+      if (updateAccountDto.setPassword) {
+        account.passwordHash = null;
+        account.setPassword = true;
+      } else if (!account.passwordHash) {
+        throw new BadRequestException(
+          'Cannot set setPassword to false unless a password has been set',
+        );
+      } else {
+        account.setPassword = false;
+      }
     }
     if (updateAccountDto.status !== undefined) {
       account.status = updateAccountDto.status;
@@ -245,11 +278,70 @@ export class AccountsService {
       account.metadata = updateAccountDto.metadata;
     }
     if (updateAccountDto.numberOfTeams !== undefined) {
+      const registered = account.systemAddress?.length ?? 0;
+      if (updateAccountDto.numberOfTeams < registered) {
+        throw new BadRequestException(
+          `numberOfTeams cannot be less than the ${registered} registered system address(es)`,
+        );
+      }
       account.numberOfTeams = updateAccountDto.numberOfTeams;
     }
 
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);
+  }
+
+  private assertCanEditAccount(
+    caller: Account,
+    account: Account,
+    updateAccountDto: UpdateAccountDto,
+  ): void {
+    if (caller.role === AccountRole.ADMIN) {
+      if (!caller.sanghat) {
+        throw new ForbiddenException('Admin account has no sanghat assigned');
+      }
+      if (account.role !== AccountRole.USER) {
+        throw new ForbiddenException('Admins can only edit User accounts');
+      }
+      if (
+        !account.sanghat ||
+        account.sanghat.toLowerCase() !== caller.sanghat.toLowerCase()
+      ) {
+        throw new ForbiddenException(
+          'Admins can only edit accounts in their sanghat',
+        );
+      }
+
+      const provided = Object.keys(updateAccountDto).filter(
+        (key) =>
+          (updateAccountDto as Record<string, unknown>)[key] !== undefined,
+      );
+      const disallowed = provided.filter(
+        (key) => !AccountsService.ADMIN_EDITABLE_FIELDS.has(key),
+      );
+      if (disallowed.length > 0) {
+        throw new ForbiddenException(
+          `Admins cannot edit: ${disallowed.join(', ')}`,
+        );
+      }
+      if (updateAccountDto.setPassword === false) {
+        throw new ForbiddenException(
+          'Admins can only change setPassword from false to true',
+        );
+      }
+      return;
+    }
+
+    if (
+      caller.role === AccountRole.SUPER_ADMIN ||
+      caller.role === AccountRole.DEVELOPER
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      'Only Admin, SuperAdmin and Developer can edit accounts',
+    );
   }
 
   async checkPhone(phoneNumber: string): Promise<CheckPhoneResult> {

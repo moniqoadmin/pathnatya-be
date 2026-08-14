@@ -187,13 +187,19 @@ export class AccountsController {
 
   @Patch(':id')
   @ApiOperation({
-    summary: 'Update an account (password / status). phoneNumber is immutable.',
+    summary:
+      'Update an account from the account list. Admins may only edit setPassword (false → true), isOffline, isLoginDisabled, domSecurity, chokidar, and numberOfTeams, and only for Users in their sanghat. SuperAdmin and Developer may edit all mutable fields. phoneNumber is immutable.',
   })
   update(
+    @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateAccountDto: UpdateAccountDto,
   ) {
-    return this.accountsService.update(id, updateAccountDto);
+    return this.accountsService.update(
+      req.user!.sub,
+      id,
+      updateAccountDto,
+    );
   }
 
   @Delete(':id')
