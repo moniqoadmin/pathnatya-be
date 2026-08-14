@@ -16,7 +16,7 @@ import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
-import { hashPassword, verifyPassword } from './password.util';
+import { hashPassword } from './password.util';
 import { JweService } from './jwe.service';
 import {
   COUNTRY_CODE_TO_NAME,
@@ -25,6 +25,8 @@ import {
   normalizeHeader,
 } from './accounts.template';
 import { isSupportedPhoneNumber } from './validators/supported-phone-number.validator';
+import { LoginProtectionService } from './login-protection.service';
+import { PasswordVerificationService } from './password-verification.service';
 
 // Account without the sensitive passwordHash field, used in API responses.
 export type AccountResponse = Omit<Account, 'passwordHash'>;
@@ -80,6 +82,8 @@ export class AccountsService {
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
     private readonly jweService: JweService,
+    private readonly loginProtection: LoginProtectionService,
+    private readonly passwordVerification: PasswordVerificationService,
   ) {}
 
   async create(
@@ -142,9 +146,7 @@ export class AccountsService {
 
     if (caller.role === AccountRole.ADMIN) {
       if (!caller.sanghat) {
-        throw new ForbiddenException(
-          'Admin account has no sanghat assigned',
-        );
+        throw new ForbiddenException('Admin account has no sanghat assigned');
       }
       qb.andWhere('LOWER(account.sanghat) = LOWER(:sanghat)', {
         sanghat: caller.sanghat,
@@ -413,10 +415,17 @@ export class AccountsService {
     loginDto: LoginDto,
     ipAddress?: string | null,
   ): Promise<LoginResponse> {
+    const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
+    await this.loginProtection.assertAllowed(loginDto.phoneNumber, resolvedIp);
+
     const account = await this.accountsRepository.findOne({
       where: { phoneNumber: loginDto.phoneNumber },
     });
     if (!account) {
+      await this.loginProtection.recordFailure(
+        loginDto.phoneNumber,
+        resolvedIp,
+      );
       throw new NotFoundException('User not found');
     }
 
@@ -428,15 +437,21 @@ export class AccountsService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const passwordMatches = await verifyPassword(
+    const passwordMatches = await this.passwordVerification.verify(
       loginDto.password,
       account.passwordHash,
     );
     if (!passwordMatches) {
-      throw new UnauthorizedException('Invalid credentials. If you have forgotten your password, please contact your Jababdar Bhai.');
+      await this.loginProtection.recordFailure(
+        loginDto.phoneNumber,
+        resolvedIp,
+      );
+      throw new UnauthorizedException(
+        'Invalid credentials. If you have forgotten your password, please contact your Jababdar Bhai.',
+      );
     }
 
-    const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
+    await this.loginProtection.clear(loginDto.phoneNumber);
     this.resolveLoginSystemAddress(account, resolvedIp);
 
     account.lastLoginTime = new Date();
@@ -558,7 +573,9 @@ export class AccountsService {
     for (const sheet of workbook.worksheets) {
       const scanLimit = Math.min(40, sheet.rowCount);
       for (let rowNumber = 1; rowNumber <= scanLimit; rowNumber++) {
-        const fieldToColumn = this.resolveHeaderColumns(sheet.getRow(rowNumber));
+        const fieldToColumn = this.resolveHeaderColumns(
+          sheet.getRow(rowNumber),
+        );
         if (!fieldToColumn.has('phoneNumber')) {
           continue;
         }
@@ -583,9 +600,7 @@ export class AccountsService {
 
   // Matches sheet headers (including multiline labels from existing files) to
   // template fields. Longer aliases win when multiple columns could match.
-  private resolveHeaderColumns(
-    headerRow: ExcelJS.Row,
-  ): Map<string, number> {
+  private resolveHeaderColumns(headerRow: ExcelJS.Row): Map<string, number> {
     const fieldToColumn = new Map<string, number>();
 
     headerRow.eachCell((cell, colNumber) => {
@@ -595,7 +610,10 @@ export class AccountsService {
       }
 
       let best:
-        | { field: (typeof TEMPLATE_COLUMNS)[number]['field']; aliasLen: number }
+        | {
+            field: (typeof TEMPLATE_COLUMNS)[number]['field'];
+            aliasLen: number;
+          }
         | undefined;
 
       for (const column of TEMPLATE_COLUMNS) {
@@ -706,7 +724,8 @@ export class AccountsService {
     return {
       row: rowNumber,
       sn: values.sn?.trim() || null,
-      country: values.country?.trim() || this.countryFromCode(values.countryCode),
+      country:
+        values.country?.trim() || this.countryFromCode(values.countryCode),
       sanghat: values.sanghat?.trim() || null,
       jilha: values.jilha?.trim() || null,
       taluka: values.taluka?.trim() || null,
@@ -741,7 +760,11 @@ export class AccountsService {
       if (typeof response === 'string') {
         return response;
       }
-      if (typeof response === 'object' && response !== null && 'message' in response) {
+      if (
+        typeof response === 'object' &&
+        response !== null &&
+        'message' in response
+      ) {
         const message = (response as { message: string | string[] }).message;
         return Array.isArray(message) ? message.join('; ') : String(message);
       }
@@ -786,7 +809,10 @@ export class AccountsService {
         return '';
       }
       if (Array.isArray(obj.richText)) {
-        return obj.richText.map((part) => part.text ?? '').join('').trim();
+        return obj.richText
+          .map((part) => part.text ?? '')
+          .join('')
+          .trim();
       }
       if (typeof obj.text === 'string') {
         return obj.text.trim();
@@ -812,10 +838,7 @@ export class AccountsService {
   }
 
   // Registers an IP into systemAddress, capped by numberOfTeams (default 1).
-  private registerSystemAddress(
-    account: Account,
-    ip: string | null,
-  ): void {
+  private registerSystemAddress(account: Account, ip: string | null): void {
     if (!ip) {
       return;
     }
@@ -841,10 +864,7 @@ export class AccountsService {
   // - IP already registered → allow.
   // - 2+ teams and slots remain → register the new IP on login, then allow.
   // - Otherwise (full list / single-team unknown IP) → reject.
-  private resolveLoginSystemAddress(
-    account: Account,
-    ip: string | null,
-  ): void {
+  private resolveLoginSystemAddress(account: Account, ip: string | null): void {
     const addresses = [...(account.systemAddress ?? [])];
     const maxTeams = this.maxTeams(account);
 
@@ -873,7 +893,8 @@ export class AccountsService {
 
   private toResponse(account: Account): AccountResponse {
     // Strip the password hash before returning to clients.
-    const { passwordHash: _passwordHash, ...rest } = account;
+    const { passwordHash, ...rest } = account;
+    void passwordHash;
     return rest;
   }
 }

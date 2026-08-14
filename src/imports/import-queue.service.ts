@@ -1,0 +1,71 @@
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Queue, Worker } from 'bullmq';
+import { RedisService } from '../redis/redis.service';
+import { AccountImportService } from './account-import.service';
+
+const QUEUE_NAME = 'account-imports';
+
+@Injectable()
+export class ImportQueueService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ImportQueueService.name);
+  private queue: Queue | null = null;
+  private worker: Worker | null = null;
+
+  constructor(
+    private readonly redis: RedisService,
+    private readonly config: ConfigService,
+    private readonly imports: AccountImportService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (!this.redis.isConfigured()) {
+      this.logger.warn(
+        'Import queue disabled because REDIS_URL is not configured',
+      );
+      return;
+    }
+    const connection = await this.redis.ensureConnected();
+    this.queue = new Queue(QUEUE_NAME, { connection });
+
+    if (this.config.get('IMPORT_WORKER_ENABLED') === 'true') {
+      this.worker = new Worker(
+        QUEUE_NAME,
+        async (job) => this.imports.process(job.data.importJobId as string),
+        {
+          connection: connection.duplicate(),
+          concurrency: Number(this.config.get('IMPORT_QUEUE_CONCURRENCY', 1)),
+        },
+      );
+      this.worker.on('failed', (job, error) =>
+        this.logger.error(
+          `Import job ${job?.id ?? 'unknown'} failed: ${error.message}`,
+        ),
+      );
+    }
+  }
+
+  async enqueue(importJobId: string): Promise<void> {
+    if (!this.queue) throw new Error('Import queue is unavailable');
+    await this.queue.add(
+      'account-import',
+      { importJobId },
+      {
+        jobId: importJobId,
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    );
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.worker?.close();
+    await this.queue?.close();
+  }
+}

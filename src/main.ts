@@ -61,8 +61,8 @@ async function bootstrap() {
     next();
   });
 
-  app.use(json({ limit: '70mb' }));
-  app.use(urlencoded({ extended: true, limit: '70mb' }));
+  app.use(json({ limit: '2mb' }));
+  app.use(urlencoded({ extended: true, limit: '2mb' }));
 
   // So req.ip reflects the real client when behind Railway / a reverse proxy.
   const expressApp = app.getHttpAdapter().getInstance();
@@ -102,21 +102,29 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Pathnatya Backend API')
-    .setDescription('API documentation')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+  const swaggerEnabled =
+    process.env.NODE_ENV !== 'production' ||
+    process.env.SWAGGER_ENABLED === 'true';
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Pathnatya Backend API')
+      .setDescription('API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   const port = process.env.PORT ?? 3000;
+  app.enableShutdownHooks();
   await app.listen(port);
   // eslint-disable-next-line no-console
   console.log(`Application running on http://localhost:${port}/api`);
   // eslint-disable-next-line no-console
-  console.log(`Swagger docs on http://localhost:${port}/docs`);
+  if (swaggerEnabled) {
+    console.log(`Swagger docs on http://localhost:${port}/docs`);
+  }
   // eslint-disable-next-line no-console
   console.log(
     `Payload encryption: ${payloadCrypto.isEnabled() ? 'ON' : 'OFF'}`,

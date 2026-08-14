@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -14,15 +13,10 @@ import {
   Query,
   Req,
   Res,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
   ApiHeader,
   ApiOperation,
   ApiTags,
@@ -30,7 +24,6 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AccountsService } from './accounts.service';
-import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
@@ -59,7 +52,6 @@ const AuthThrottle = () => Throttle({ default: { limit: 10, ttl: 60_000 } });
 export class AccountsController {
   constructor(
     private readonly accountsService: AccountsService,
-    private readonly bulkAccountsUploadService: BulkAccountsUploadService,
     private readonly jweService: JweService,
   ) {}
 
@@ -86,28 +78,6 @@ export class AccountsController {
       'Content-Length': buffer.length,
     });
     res.send(buffer);
-  }
-
-  @Post('bulk/upload')
-  @ApiOperation({
-    summary:
-      'Bulk create accounts from a filled-in .xlsx (nivedan or template). Duplicate / invalid phone numbers are skipped and returned in errors after all rows are processed.',
-  })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: { type: 'string', format: 'binary' },
-      },
-    },
-  })
-  @UseInterceptors(FileInterceptor('file'))
-  bulkUpload(@UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded (field name must be "file")');
-    }
-    return this.bulkAccountsUploadService.bulkUpload(file.buffer);
   }
 
   @Public()
@@ -197,11 +167,7 @@ export class AccountsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateAccountDto: UpdateAccountDto,
   ) {
-    return this.accountsService.update(
-      req.user!.sub,
-      id,
-      updateAccountDto,
-    );
+    return this.accountsService.update(req.user!.sub, id, updateAccountDto);
   }
 
   @Delete(':id')

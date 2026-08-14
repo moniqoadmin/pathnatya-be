@@ -38,6 +38,17 @@ export class PayloadEncryptionExceptionFilter implements ExceptionFilter {
         : exceptionResponse;
 
     if (
+      typeof body === 'object' &&
+      body !== null &&
+      'retryAfterSeconds' in body
+    ) {
+      response.setHeader(
+        'Retry-After',
+        String((body as { retryAfterSeconds: number }).retryAfterSeconds),
+      );
+    }
+
+    if (
       !this.payloadCrypto.isEnabled() ||
       this.shouldSkipPath(request) ||
       isLocalhostRequest(request)
