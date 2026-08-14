@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as ExcelJS from 'exceljs';
 import { Account, AccountRole, AccountStatus } from './entities/account.entity';
 import {
@@ -132,7 +133,9 @@ export class BulkAccountsUploadService {
     }
 
     try {
-      await this.accountsRepository.insert(batch.map((item) => item.account));
+      await this.accountsRepository.insert(
+        batch.map((item) => item.account as QueryDeepPartialEntity<Account>),
+      );
       result.created += batch.length;
     } catch (error) {
       if (!this.isUniqueViolation(error)) {
@@ -144,7 +147,9 @@ export class BulkAccountsUploadService {
       // so one duplicate does not fail the entire batch.
       for (const item of batch) {
         try {
-          await this.accountsRepository.insert(item.account);
+          await this.accountsRepository.insert(
+            item.account as QueryDeepPartialEntity<Account>,
+          );
           result.created += 1;
         } catch (rowError) {
           result.failed += 1;
