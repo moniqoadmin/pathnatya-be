@@ -25,31 +25,31 @@ export class AccountImportJobError {
   @Column({ name: 'row_number', type: 'int' })
   rowNumber: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   sn: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   country: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   sanghat: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   jilha: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   taluka: string | null;
 
-  @Column({ name: 'group', nullable: true })
+  @Column({ name: 'group', type: 'varchar', nullable: true })
   group: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   kendra: string | null;
 
-  @Column({ name: 'sanchalak_name', nullable: true })
+  @Column({ name: 'sanchalak_name', type: 'varchar', nullable: true })
   sanchalakName: string | null;
 
-  @Column({ name: 'phone_number', nullable: true })
+  @Column({ name: 'phone_number', type: 'varchar', nullable: true })
   phoneNumber: string | null;
 
   @Column({ type: 'text' })
