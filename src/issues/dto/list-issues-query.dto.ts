@@ -1,8 +1,25 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
-export class ListIssuesQueryDto {
+/** Optional `admin` query flag sent by the admin UI. */
+export class OptionalAdminQueryDto {
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'Optional client flag (e.g. admin UI). Accepted when present; not required.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  admin?: boolean;
+}
+
+export class ListIssuesQueryDto extends OptionalAdminQueryDto {
   @ApiPropertyOptional({
     example: 1,
     minimum: 1,
