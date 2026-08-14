@@ -14,6 +14,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { PayloadCryptoModule } from './crypto/payload-crypto.module';
 import { LogsModule } from './logs/logs.module';
 import { VideosModule } from './videos/videos.module';
+import { IssuesModule } from './issues/issues.module';
 
 function loadTestKeyMatches(
   provided: string | string[] | undefined,
@@ -82,6 +83,7 @@ function loadTestKeyMatches(
     AccountsModule,
     LogsModule,
     VideosModule,
+    IssuesModule,
   ],
   controllers: [AppController],
   providers: [

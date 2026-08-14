@@ -191,6 +191,18 @@ export class AccountsService {
     return this.toResponse(account);
   }
 
+  async findByPhoneNumber(phoneNumber: string): Promise<AccountResponse> {
+    const account = await this.accountsRepository.findOne({
+      where: { phoneNumber },
+    });
+    if (!account) {
+      throw new NotFoundException(
+        `Account with phone number ${phoneNumber} not found`,
+      );
+    }
+    return this.toResponse(account);
+  }
+
   private static readonly ADMIN_EDITABLE_FIELDS = new Set([
     'setPassword',
     'isOffline',
