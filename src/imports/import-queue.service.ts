@@ -32,22 +32,36 @@ export class ImportQueueService implements OnModuleInit, OnModuleDestroy {
     }
     const connection = await this.redis.ensureConnected();
     this.queue = new Queue(QUEUE_NAME, { connection });
+    const configuredConcurrency = Number(
+      this.config.get('IMPORT_QUEUE_CONCURRENCY', 1),
+    );
+    const concurrency =
+      Number.isInteger(configuredConcurrency) && configuredConcurrency > 0
+        ? configuredConcurrency
+        : 1;
 
-    if (this.config.get('IMPORT_WORKER_ENABLED') === 'true') {
-      this.worker = new Worker(
-        QUEUE_NAME,
-        async (job) => this.imports.process(job.data.importJobId as string),
-        {
-          connection: connection.duplicate(),
-          concurrency: Number(this.config.get('IMPORT_QUEUE_CONCURRENCY', 1)),
-        },
-      );
-      this.worker.on('failed', (job, error) =>
-        this.logger.error(
-          `Import job ${job?.id ?? 'unknown'} failed: ${error.message}`,
-        ),
-      );
-    }
+    // Every API replica hosts a worker. The Redis-backed global limit keeps the
+    // combined concurrency bounded even when Railway runs multiple replicas.
+    await this.queue.setGlobalConcurrency(concurrency);
+    this.worker = new Worker(
+      QUEUE_NAME,
+      async (job) => this.imports.process(job.data.importJobId as string),
+      {
+        connection: connection.duplicate(),
+        concurrency,
+      },
+    );
+    this.worker.on('failed', (job, error) =>
+      this.logger.error(
+        `Import job ${job?.id ?? 'unknown'} failed: ${error.message}`,
+      ),
+    );
+    this.worker.on('error', (error) =>
+      this.logger.error(`Import worker error: ${error.message}`),
+    );
+    this.logger.log(
+      `Import worker enabled with global concurrency ${concurrency}`,
+    );
   }
 
   async enqueue(importJobId: string): Promise<void> {
