@@ -30,6 +30,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AccountsService } from './accounts.service';
+import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
@@ -58,6 +59,7 @@ const AuthThrottle = () => Throttle({ default: { limit: 10, ttl: 60_000 } });
 export class AccountsController {
   constructor(
     private readonly accountsService: AccountsService,
+    private readonly bulkAccountsUploadService: BulkAccountsUploadService,
     private readonly jweService: JweService,
   ) {}
 
@@ -105,7 +107,7 @@ export class AccountsController {
     if (!file) {
       throw new BadRequestException('No file uploaded (field name must be "file")');
     }
-    return this.accountsService.bulkUpload(file.buffer);
+    return this.bulkAccountsUploadService.bulkUpload(file.buffer);
   }
 
   @Public()
