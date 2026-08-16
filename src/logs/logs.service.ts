@@ -5,6 +5,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { CreateLogDto } from './dto/create-log.dto';
 import { Log } from './entities/log.entity';
 
+export const FILES_TAMPERED_EVENT = 'FILES_TAMPERED';
+
 export type LogResponse = {
   logId: string;
   id: string;
@@ -24,6 +26,10 @@ export class LogsService {
 
   async create(accountId: string, dto: CreateLogDto): Promise<LogResponse> {
     const account = await this.accountsService.findOne(accountId);
+
+    if (dto.event === FILES_TAMPERED_EVENT) {
+      await this.accountsService.disableLogin(account.id);
+    }
 
     const log = this.logsRepository.create({
       id: account.id,

@@ -305,6 +305,16 @@ export class AccountsService {
     return this.toResponse(saved);
   }
 
+  /** Blocks the account from authenticating (check-phone, login, set-password). */
+  async disableLogin(id: string): Promise<void> {
+    const account = await this.getEntityOrFail(id);
+    if (account.isLoginDisabled) {
+      return;
+    }
+    account.isLoginDisabled = true;
+    await this.accountsRepository.save(account);
+  }
+
   private assertCanEditAccount(
     caller: Account,
     account: Account,

@@ -4,7 +4,8 @@ import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-va
 export class CreateLogDto {
   @ApiProperty({
     example: 'video_playback_started',
-    description: 'Event name / type being logged.',
+    description:
+      'Event name / type being logged. FILES_TAMPERED disables login for the authenticated account.',
   })
   @IsString()
   @IsNotEmpty()
