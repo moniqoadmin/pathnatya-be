@@ -218,6 +218,8 @@ export class BulkAccountsUploadService {
       kendra: values.kendra?.trim() || null,
       sanchalakName: values.sanchalakName?.trim() || null,
       numberOfTeams: numberOfTeams ?? null,
+      numberOfReboot: 0,
+      videoOnly: false,
       metadata: kendraType ? { kendraType } : null,
       ipAddress: null,
       systemAddress: null,

@@ -13,6 +13,7 @@ export type LogResponse = {
   phoneNumber: string;
   event: string;
   tampered: boolean;
+  meta: Record<string, unknown> | null;
   createdAt: Date;
 };
 
@@ -36,6 +37,7 @@ export class LogsService {
       phoneNumber: account.phoneNumber,
       event: dto.event,
       tampered: dto.tampered ?? false,
+      meta: dto.meta ?? null,
     });
 
     const saved = await this.logsRepository.save(log);
@@ -67,6 +69,7 @@ export class LogsService {
       phoneNumber: log.phoneNumber,
       event: log.event,
       tampered: log.tampered,
+      meta: log.meta,
       createdAt: log.createdAt,
     };
   }

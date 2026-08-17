@@ -98,6 +98,13 @@ export class Account {
   @Column({ name: 'number_of_teams', type: 'int', nullable: true })
   numberOfTeams: number | null;
 
+  @Column({ name: 'number_of_reboot', type: 'int', default: 0 })
+  numberOfReboot: number;
+
+  // When true, the client should play video only (no other media).
+  @Column({ name: 'video_only', type: 'boolean', default: false })
+  videoOnly: boolean;
+
   // Registered system IPs (one per team). Length is capped by numberOfTeams.
   @Column({
     name: 'system_address',

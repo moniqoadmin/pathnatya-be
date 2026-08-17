@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateLogDto {
   @ApiProperty({
@@ -20,4 +20,12 @@ export class CreateLogDto {
   @IsOptional()
   @IsBoolean()
   tampered?: boolean;
+
+  @ApiPropertyOptional({
+    example: { videoId: 'abc', durationSeconds: 120 },
+    description: 'Arbitrary JSON metadata for this log event.',
+  })
+  @IsOptional()
+  @IsObject()
+  meta?: Record<string, unknown>;
 }

@@ -37,6 +37,27 @@ export class CreateAccountDto {
   numberOfTeams?: number;
 
   @ApiPropertyOptional({
+    example: 0,
+    minimum: 0,
+    default: 0,
+    description: 'Number of reboots recorded for this account.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  numberOfReboot?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description: 'When true, the client should play video only.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  videoOnly?: boolean;
+
+  @ApiPropertyOptional({
     example: 'S3curePass!',
     minLength: 6,
     description:

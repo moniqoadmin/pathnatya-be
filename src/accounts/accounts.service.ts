@@ -124,6 +124,8 @@ export class AccountsService {
       metadata: createAccountDto.metadata ?? null,
       ipAddress: ipAddress ?? null,
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
+      numberOfReboot: createAccountDto.numberOfReboot ?? 0,
+      videoOnly: createAccountDto.videoOnly ?? false,
       systemAddress: null,
     });
     const saved = await this.accountsRepository.save(account);
@@ -212,6 +214,8 @@ export class AccountsService {
     'domSecurity',
     'chokidar',
     'numberOfTeams',
+    'numberOfReboot',
+    'videoOnly',
   ]);
 
   async update(
@@ -299,6 +303,12 @@ export class AccountsService {
         );
       }
       account.numberOfTeams = updateAccountDto.numberOfTeams;
+    }
+    if (updateAccountDto.numberOfReboot !== undefined) {
+      account.numberOfReboot = updateAccountDto.numberOfReboot;
+    }
+    if (updateAccountDto.videoOnly !== undefined) {
+      account.videoOnly = updateAccountDto.videoOnly;
     }
 
     const saved = await this.accountsRepository.save(account);
