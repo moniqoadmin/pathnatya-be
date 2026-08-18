@@ -8,12 +8,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { Account, AccountRole, AccountStatus } from './entities/account.entity';
+import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
+import { UpdateTeamDto } from './dto/update-team.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { hashPassword } from './password.util';
@@ -28,12 +30,20 @@ import { isSupportedPhoneNumber } from './validators/supported-phone-number.vali
 import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
 
-// Account without the sensitive passwordHash field, used in API responses.
-export type AccountResponse = Omit<Account, 'passwordHash'>;
+export type TeamResponse = Omit<Team, 'passwordHash' | 'account'>;
 
-// Returned whenever a login-disabled account attempts to authenticate.
+export type AccountResponse = Omit<Account, 'teams'> & {
+  teams: TeamResponse[];
+};
+
 const LOGIN_DISABLED_MESSAGE =
   'Login has been disabled for this account. Please contact your Jababdar Bhai.';
+
+const SYSTEM_ADDRESS_LIMIT_MESSAGE =
+  'Login not allowed from this system, use the same system as the one used the first time. If the system is not available, please contact your Jababdar Bhai.';
+
+const SYSTEM_ADDRESS_SET_PASSWORD_LIMIT_MESSAGE =
+  'System address limit reached for this account';
 
 export interface LoginResponse {
   account: AccountResponse;
@@ -81,15 +91,14 @@ export class AccountsService {
   constructor(
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
+    @InjectRepository(Team)
+    private readonly teamsRepository: Repository<Team>,
     private readonly jweService: JweService,
     private readonly loginProtection: LoginProtectionService,
     private readonly passwordVerification: PasswordVerificationService,
   ) {}
 
-  async create(
-    createAccountDto: CreateAccountDto,
-    ipAddress?: string | null,
-  ): Promise<AccountResponse> {
+  async create(createAccountDto: CreateAccountDto): Promise<AccountResponse> {
     const existing = await this.accountsRepository.findOne({
       where: { phoneNumber: createAccountDto.phoneNumber },
     });
@@ -100,14 +109,13 @@ export class AccountsService {
     }
 
     const hasPassword = createAccountDto.password !== undefined;
+    const passwordHash = hasPassword
+      ? await hashPassword(createAccountDto.password as string)
+      : null;
+    const teamCount = createAccountDto.numberOfTeams ?? 1;
 
     const account = this.accountsRepository.create({
       phoneNumber: createAccountDto.phoneNumber,
-      passwordHash: hasPassword
-        ? await hashPassword(createAccountDto.password as string)
-        : null,
-      // setPassword is true when the account has no password yet.
-      setPassword: !hasPassword,
       status: createAccountDto.status,
       role: createAccountDto.role ?? AccountRole.USER,
       isOffline: createAccountDto.isOffline ?? false,
@@ -122,12 +130,11 @@ export class AccountsService {
       kendra: createAccountDto.kendra ?? null,
       sanchalakName: createAccountDto.sanchalakName ?? null,
       metadata: createAccountDto.metadata ?? null,
-      ipAddress: ipAddress ?? null,
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
       numberOfReboot: createAccountDto.numberOfReboot ?? 0,
       videoOnly: createAccountDto.videoOnly ?? false,
       appConfiguration: createAccountDto.appConfiguration ?? 1,
-      systemAddress: null,
+      teams: this.buildTeamSlots(teamCount, passwordHash),
     });
     const saved = await this.accountsRepository.save(account);
     return this.toResponse(saved);
@@ -182,6 +189,7 @@ export class AccountsService {
     }
 
     const [accounts, total] = await qb.getManyAndCount();
+    await this.attachTeams(accounts);
     return {
       data: accounts.map((account) => this.toResponse(account)),
       page,
@@ -205,11 +213,13 @@ export class AccountsService {
         `Account with phone number ${phoneNumber} not found`,
       );
     }
+    await this.attachTeams([account]);
     return this.toResponse(account);
   }
 
   private static readonly ADMIN_EDITABLE_FIELDS = new Set([
     'setPassword',
+    'teams',
     'isOffline',
     'isLoginDisabled',
     'domSecurity',
@@ -218,6 +228,12 @@ export class AccountsService {
     'numberOfReboot',
     'videoOnly',
     'appConfiguration',
+  ]);
+
+  private static readonly ADMIN_EDITABLE_TEAM_FIELDS = new Set([
+    'teamNumber',
+    'setPassword',
+    'isLoginDisabled',
   ]);
 
   async update(
@@ -238,23 +254,26 @@ export class AccountsService {
       );
     }
 
-    if (updateAccountDto.password !== undefined) {
-      account.passwordHash = await hashPassword(updateAccountDto.password);
-      // A password has now been set.
-      account.setPassword = false;
-    }
-    if (updateAccountDto.setPassword !== undefined) {
-      if (updateAccountDto.setPassword) {
-        account.passwordHash = null;
-        account.setPassword = true;
-      } else if (!account.passwordHash) {
-        throw new BadRequestException(
-          'Cannot set setPassword to false unless a password has been set',
-        );
-      } else {
-        account.setPassword = false;
+    if (updateAccountDto.setPassword === true) {
+      for (const team of account.teams) {
+        this.clearTeamPassword(team);
       }
+    } else if (updateAccountDto.setPassword === false) {
+      throw new BadRequestException(
+        'setPassword=false must be done per team after a password is set',
+      );
     }
+
+    if (updateAccountDto.password !== undefined) {
+      const team = this.requireTeam(account, 1);
+      team.passwordHash = await hashPassword(updateAccountDto.password);
+      team.setPassword = false;
+    }
+
+    if (updateAccountDto.teams) {
+      await this.applyTeamUpdates(account, updateAccountDto.teams);
+    }
+
     if (updateAccountDto.status !== undefined) {
       account.status = updateAccountDto.status;
     }
@@ -298,12 +317,7 @@ export class AccountsService {
       account.metadata = updateAccountDto.metadata;
     }
     if (updateAccountDto.numberOfTeams !== undefined) {
-      const registered = account.systemAddress?.length ?? 0;
-      if (updateAccountDto.numberOfTeams < registered) {
-        throw new BadRequestException(
-          `numberOfTeams cannot be less than the ${registered} registered system address(es)`,
-        );
-      }
+      await this.syncTeamCount(account, updateAccountDto.numberOfTeams);
       account.numberOfTeams = updateAccountDto.numberOfTeams;
     }
     if (updateAccountDto.numberOfReboot !== undefined) {
@@ -316,7 +330,9 @@ export class AccountsService {
       account.appConfiguration = updateAccountDto.appConfiguration;
     }
 
+    await this.teamsRepository.save(account.teams);
     const saved = await this.accountsRepository.save(account);
+    saved.teams = account.teams;
     return this.toResponse(saved);
   }
 
@@ -368,6 +384,26 @@ export class AccountsService {
           'Admins can only change setPassword from false to true',
         );
       }
+      for (const teamUpdate of updateAccountDto.teams ?? []) {
+        const provided = Object.keys(teamUpdate).filter(
+          (key) =>
+            (teamUpdate as unknown as Record<string, unknown>)[key] !==
+            undefined,
+        );
+        const disallowed = provided.filter(
+          (key) => !AccountsService.ADMIN_EDITABLE_TEAM_FIELDS.has(key),
+        );
+        if (disallowed.length > 0) {
+          throw new ForbiddenException(
+            `Admins cannot edit team fields: ${disallowed.join(', ')}`,
+          );
+        }
+        if (teamUpdate.setPassword === false) {
+          throw new ForbiddenException(
+            'Admins can only change setPassword from false to true',
+          );
+        }
+      }
       return;
     }
 
@@ -383,10 +419,11 @@ export class AccountsService {
     );
   }
 
-  async checkPhone(phoneNumber: string): Promise<CheckPhoneResult> {
-    const account = await this.accountsRepository.findOne({
-      where: { phoneNumber },
-    });
+  async checkPhone(
+    phoneNumber: string,
+    ipAddress?: string | null,
+  ): Promise<CheckPhoneResult> {
+    const account = await this.findAccountByPhone(phoneNumber);
 
     if (!account) {
       return { exists: false, needsPassword: false };
@@ -396,9 +433,18 @@ export class AccountsService {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
+    const team = this.resolveTeamForDevice(
+      account,
+      ipAddress ?? null,
+      'check-phone',
+    );
+    if (team.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+    }
+
     return {
       exists: true,
-      needsPassword: account.setPassword || !account.passwordHash,
+      needsPassword: team.setPassword || !team.passwordHash,
     };
   }
 
@@ -406,9 +452,7 @@ export class AccountsService {
     setPasswordDto: SetPasswordDto,
     ipAddress?: string | null,
   ): Promise<AccountResponse> {
-    const account = await this.accountsRepository.findOne({
-      where: { phoneNumber: setPasswordDto.phoneNumber },
-    });
+    const account = await this.findAccountByPhone(setPasswordDto.phoneNumber);
     if (!account) {
       throw new NotFoundException('User not found');
     }
@@ -417,16 +461,20 @@ export class AccountsService {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
-    const resolvedIp =
-      setPasswordDto.ipAddress ?? ipAddress ?? account.ipAddress ?? null;
+    const resolvedIp = setPasswordDto.ipAddress ?? ipAddress ?? null;
+    const team = this.resolveTeamForDevice(account, resolvedIp, 'set-password');
+    if (team.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+    }
 
-    account.passwordHash = await hashPassword(setPasswordDto.password);
-    account.setPassword = false;
-    account.ipAddress = resolvedIp;
-    this.registerSystemAddress(account, resolvedIp);
+    team.passwordHash = await hashPassword(setPasswordDto.password);
+    team.setPassword = false;
+    if (resolvedIp) {
+      team.systemAddress = resolvedIp;
+    }
+    await this.teamsRepository.save(team);
 
-    const saved = await this.accountsRepository.save(account);
-    return this.toResponse(saved);
+    return this.toResponse(account);
   }
 
   async remove(id: string): Promise<void> {
@@ -443,9 +491,7 @@ export class AccountsService {
     const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
     await this.loginProtection.assertAllowed(loginDto.phoneNumber, resolvedIp);
 
-    const account = await this.accountsRepository.findOne({
-      where: { phoneNumber: loginDto.phoneNumber },
-    });
+    const account = await this.findAccountByPhone(loginDto.phoneNumber);
     if (!account) {
       await this.loginProtection.recordFailure(
         loginDto.phoneNumber,
@@ -458,13 +504,18 @@ export class AccountsService {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
-    if (account.setPassword || !account.passwordHash) {
+    const team = this.resolveTeamForDevice(account, resolvedIp, 'login');
+    if (team.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+    }
+
+    if (team.setPassword || !team.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const passwordMatches = await this.passwordVerification.verify(
       loginDto.password,
-      account.passwordHash,
+      team.passwordHash,
     );
     if (!passwordMatches) {
       await this.loginProtection.recordFailure(
@@ -477,14 +528,13 @@ export class AccountsService {
     }
 
     await this.loginProtection.clear(loginDto.phoneNumber);
-    this.resolveLoginSystemAddress(account, resolvedIp);
+    this.bindTeamOnLogin(account, team, resolvedIp);
 
-    account.lastLoginTime = new Date();
-    account.ipAddress = resolvedIp ?? account.ipAddress;
-    const saved = await this.accountsRepository.save(account);
+    team.lastLoginTime = new Date();
+    await this.teamsRepository.save(team);
     return {
-      account: this.toResponse(saved),
-      token: await this.jweService.encryptAccountToken(saved.id),
+      account: this.toResponse(account),
+      token: await this.jweService.encryptAccountToken(account.id),
     };
   }
 
@@ -696,7 +746,6 @@ export class AccountsService {
 
     await this.create({
       phoneNumber,
-      // No password column → setPassword stays true via create().
       status: AccountStatus.ACTIVE,
       role: (role as AccountRole) || AccountRole.USER,
       isOffline: false,
@@ -855,71 +904,218 @@ export class AccountsService {
     if (!account) {
       throw new NotFoundException(`Account with id ${id} not found`);
     }
+    await this.attachTeams([account]);
     return account;
+  }
+
+  private async findAccountByPhone(
+    phoneNumber: string,
+  ): Promise<Account | null> {
+    const account = await this.accountsRepository.findOne({
+      where: { phoneNumber },
+    });
+    if (account) {
+      await this.attachTeams([account]);
+    }
+    return account;
+  }
+
+  private async attachTeams(accounts: Account[]): Promise<void> {
+    if (accounts.length === 0) {
+      return;
+    }
+    const teams = await this.teamsRepository.find({
+      where: { accountId: In(accounts.map((account) => account.id)) },
+      order: { teamNumber: 'ASC' },
+    });
+    const byAccount = new Map<string, Team[]>();
+    for (const team of teams) {
+      const list = byAccount.get(team.accountId) ?? [];
+      list.push(team);
+      byAccount.set(team.accountId, list);
+    }
+    for (const account of accounts) {
+      account.teams = byAccount.get(account.id) ?? [];
+    }
   }
 
   private maxTeams(account: Account): number {
     return account.numberOfTeams ?? 1;
   }
 
-  // Registers an IP into systemAddress, capped by numberOfTeams (default 1).
-  private registerSystemAddress(account: Account, ip: string | null): void {
-    if (!ip) {
-      return;
-    }
-
-    const addresses = [...(account.systemAddress ?? [])];
-    if (addresses.includes(ip)) {
-      account.systemAddress = addresses;
-      return;
-    }
-
-    if (addresses.length >= this.maxTeams(account)) {
-      throw new ForbiddenException(
-        'System address limit reached for this account',
-      );
-    }
-
-    addresses.push(ip);
-    account.systemAddress = addresses;
+  private buildTeamSlots(
+    count: number,
+    teamOnePasswordHash: string | null,
+  ): Team[] {
+    return Array.from({ length: Math.max(count, 1) }, (_, index) => {
+      const teamNumber = index + 1;
+      const passwordHash = teamNumber === 1 ? teamOnePasswordHash : null;
+      return this.teamsRepository.create({
+        teamNumber,
+        passwordHash,
+        setPassword: !passwordHash,
+        systemAddress: null,
+        metadata: null,
+        isLoginDisabled: false,
+        lastLoginTime: null,
+      });
+    });
   }
 
-  // Login IP rules:
-  // - Empty systemAddress → allow (and for 2+ teams, register this IP).
-  // - IP already registered → allow.
-  // - 2+ teams and slots remain → register the new IP on login, then allow.
-  // - Otherwise (full list / single-team unknown IP) → reject.
-  private resolveLoginSystemAddress(account: Account, ip: string | null): void {
-    const addresses = [...(account.systemAddress ?? [])];
-    const maxTeams = this.maxTeams(account);
+  private requireTeam(account: Account, teamNumber: number): Team {
+    const team = account.teams.find((item) => item.teamNumber === teamNumber);
+    if (!team) {
+      throw new NotFoundException(`Team ${teamNumber} not found`);
+    }
+    return team;
+  }
 
-    if (addresses.length === 0) {
-      if (maxTeams >= 2 && ip) {
-        account.systemAddress = [ip];
+  private clearTeamPassword(team: Team): void {
+    team.passwordHash = null;
+    team.setPassword = true;
+  }
+
+  private async applyTeamUpdates(
+    account: Account,
+    updates: UpdateTeamDto[],
+  ): Promise<void> {
+    for (const update of updates) {
+      if (update.password !== undefined && update.setPassword === true) {
+        throw new BadRequestException(
+          'Cannot set a password and setPassword=true in the same request',
+        );
       }
+      const team = this.requireTeam(account, update.teamNumber);
+      if (update.setPassword === true) {
+        this.clearTeamPassword(team);
+      } else if (update.setPassword === false) {
+        if (!team.passwordHash) {
+          throw new BadRequestException(
+            'Cannot set setPassword to false unless a password has been set',
+          );
+        }
+        team.setPassword = false;
+      }
+      if (update.password !== undefined) {
+        team.passwordHash = await hashPassword(update.password);
+        team.setPassword = false;
+      }
+      if (update.isLoginDisabled !== undefined) {
+        team.isLoginDisabled = update.isLoginDisabled;
+      }
+    }
+  }
+
+  private async syncTeamCount(
+    account: Account,
+    newCount: number,
+  ): Promise<void> {
+    const existingNumbers = new Set(
+      account.teams.map((team) => team.teamNumber),
+    );
+    for (let teamNumber = 1; teamNumber <= newCount; teamNumber++) {
+      if (!existingNumbers.has(teamNumber)) {
+        account.teams.push(
+          this.teamsRepository.create({
+            accountId: account.id,
+            teamNumber,
+            passwordHash: null,
+            setPassword: true,
+            systemAddress: null,
+            metadata: null,
+            isLoginDisabled: false,
+            lastLoginTime: null,
+          }),
+        );
+      }
+    }
+
+    const toRemove = account.teams.filter((team) => team.teamNumber > newCount);
+    if (toRemove.length === 0) {
       return;
     }
 
-    if (ip && addresses.includes(ip)) {
-      return;
+    const registered = toRemove.filter(
+      (team) => team.systemAddress || team.passwordHash,
+    );
+    if (registered.length > 0) {
+      const boundCount = account.teams.filter(
+        (team) =>
+          team.teamNumber <= newCount ||
+          team.systemAddress ||
+          team.passwordHash,
+      ).length;
+      throw new BadRequestException(
+        `numberOfTeams cannot be less than the ${boundCount} registered team(s)`,
+      );
+    }
+    account.teams = account.teams.filter((team) => team.teamNumber <= newCount);
+    const persisted = toRemove.filter((team) => team.id);
+    if (persisted.length > 0) {
+      await this.teamsRepository.remove(persisted);
+    }
+  }
+
+  private resolveTeamForDevice(
+    account: Account,
+    ip: string | null,
+    mode: 'login' | 'set-password' | 'check-phone',
+  ): Team {
+    const teams = [...(account.teams ?? [])].sort(
+      (a, b) => a.teamNumber - b.teamNumber,
+    );
+    if (teams.length === 0) {
+      throw new ForbiddenException(SYSTEM_ADDRESS_LIMIT_MESSAGE);
     }
 
-    // Additional teams register their IP on login until the cap is filled.
-    if (maxTeams >= 2 && ip && addresses.length < maxTeams) {
-      addresses.push(ip);
-      account.systemAddress = addresses;
-      return;
+    if (ip) {
+      const matched = teams.find((team) => team.systemAddress === ip);
+      if (matched) {
+        return matched;
+      }
+    }
+
+    const unbound = teams.find(
+      (team) => !team.systemAddress && !team.isLoginDisabled,
+    );
+    if (unbound) {
+      return unbound;
     }
 
     throw new ForbiddenException(
-      'Login not allowed from this system, use the same system as the one used the first time. If the system is not available, please contact your Jababdar Bhai.',
+      mode === 'set-password'
+        ? SYSTEM_ADDRESS_SET_PASSWORD_LIMIT_MESSAGE
+        : SYSTEM_ADDRESS_LIMIT_MESSAGE,
     );
   }
 
+  // Login binds a new IP onto an unbound team only when the account allows
+  // 2+ teams (same rule as the old systemAddress array). Single-team accounts
+  // bind on set-password, not on login.
+  private bindTeamOnLogin(
+    account: Account,
+    team: Team,
+    ip: string | null,
+  ): void {
+    if (!ip || team.systemAddress) {
+      return;
+    }
+    if (this.maxTeams(account) >= 2) {
+      team.systemAddress = ip;
+    }
+  }
+
   private toResponse(account: Account): AccountResponse {
-    // Strip the password hash before returning to clients.
-    const { passwordHash, ...rest } = account;
-    void passwordHash;
-    return rest;
+    const teams = [...(account.teams ?? [])]
+      .sort((a, b) => a.teamNumber - b.teamNumber)
+      .map((team) => {
+        const { passwordHash, account: teamAccount, ...rest } = team;
+        void passwordHash;
+        void teamAccount;
+        return rest;
+      });
+    const { teams: _teams, ...rest } = account;
+    void _teams;
+    return { ...rest, teams };
   }
 }

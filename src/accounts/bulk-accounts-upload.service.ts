@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as ExcelJS from 'exceljs';
 import { Account, AccountRole, AccountStatus } from './entities/account.entity';
+import { Team } from './entities/team.entity';
 import {
   COUNTRY_CODE_TO_NAME,
   TEMPLATE_COLUMNS,
@@ -45,6 +46,8 @@ export class BulkAccountsUploadService {
   constructor(
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
+    @InjectRepository(Team)
+    private readonly teamsRepository: Repository<Team>,
   ) {}
 
   async bulkUpload(
@@ -137,9 +140,25 @@ export class BulkAccountsUploadService {
     }
 
     try {
-      await this.accountsRepository.insert(
-        batch.map((item) => item.account as QueryDeepPartialEntity<Account>),
-      );
+      await this.accountsRepository.manager.transaction(async (manager) => {
+        await manager.insert(
+          Account,
+          batch.map((item) => item.account as QueryDeepPartialEntity<Account>),
+        );
+        const saved = await manager.find(Account, {
+          where: {
+            phoneNumber: In(batch.map((item) => item.account.phoneNumber)),
+          },
+          select: ['id', 'phoneNumber', 'numberOfTeams'],
+        });
+        await this.insertTeamsForAccounts(
+          saved.map((account) => ({
+            accountId: account.id,
+            numberOfTeams: account.numberOfTeams,
+          })),
+          manager.getRepository(Team),
+        );
+      });
       result.created += batch.length;
     } catch (error) {
       if (!this.isUniqueViolation(error)) {
@@ -151,9 +170,27 @@ export class BulkAccountsUploadService {
       // so one duplicate does not fail the entire batch.
       for (const item of batch) {
         try {
-          await this.accountsRepository.insert(
-            item.account as QueryDeepPartialEntity<Account>,
-          );
+          await this.accountsRepository.manager.transaction(async (manager) => {
+            await manager.insert(
+              Account,
+              item.account as QueryDeepPartialEntity<Account>,
+            );
+            const saved = await manager.findOne(Account, {
+              where: { phoneNumber: item.account.phoneNumber },
+              select: ['id', 'numberOfTeams'],
+            });
+            if (saved) {
+              await this.insertTeamsForAccounts(
+                [
+                  {
+                    accountId: saved.id,
+                    numberOfTeams: saved.numberOfTeams,
+                  },
+                ],
+                manager.getRepository(Team),
+              );
+            }
+          });
           result.created += 1;
         } catch (rowError) {
           result.failed += 1;
@@ -202,8 +239,6 @@ export class BulkAccountsUploadService {
 
     return this.accountsRepository.create({
       phoneNumber,
-      passwordHash: null,
-      setPassword: true,
       status: AccountStatus.ACTIVE,
       role: (role as AccountRole) || AccountRole.USER,
       isOffline: false,
@@ -222,10 +257,32 @@ export class BulkAccountsUploadService {
       videoOnly: false,
       appConfiguration: 1,
       metadata: kendraType ? { kendraType } : null,
-      ipAddress: null,
-      systemAddress: null,
-      lastLoginTime: null,
     });
+  }
+
+  private async insertTeamsForAccounts(
+    accounts: Array<{ accountId: string; numberOfTeams: number | null }>,
+    teamsRepository: Repository<Team> = this.teamsRepository,
+  ): Promise<void> {
+    const teams = accounts.flatMap(({ accountId, numberOfTeams }) => {
+      const count = Math.max(numberOfTeams ?? 1, 1);
+      return Array.from({ length: count }, (_, index) =>
+        teamsRepository.create({
+          accountId,
+          teamNumber: index + 1,
+          passwordHash: null,
+          setPassword: true,
+          systemAddress: null,
+          metadata: null,
+          isLoginDisabled: false,
+          lastLoginTime: null,
+        }),
+      );
+    });
+    if (teams.length === 0) {
+      return;
+    }
+    await teamsRepository.insert(teams as QueryDeepPartialEntity<Team>[]);
   }
 
   private findUploadSheet(workbook: ExcelJS.Workbook): {

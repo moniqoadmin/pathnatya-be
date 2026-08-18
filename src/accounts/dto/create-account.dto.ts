@@ -28,7 +28,7 @@ export class CreateAccountDto {
     example: 2,
     minimum: 1,
     description:
-      'Number of teams / systems allowed for this account. Caps how many IPs can be stored in systemAddress. Defaults to 1 when null.',
+      'Number of teams / systems allowed for this account. Team rows are pre-created up to this cap. Defaults to 1 when null.',
   })
   @IsOptional()
   @Type(() => Number)
@@ -73,7 +73,7 @@ export class CreateAccountDto {
     example: 'S3curePass!',
     minLength: 6,
     description:
-      'Optional. If provided, setPassword is stored as false. If omitted, the account is created with setPassword=true.',
+      'Optional. If provided, team 1 is created with this password (setPassword false). Other teams still need to set a password. If omitted, every team is created with setPassword=true.',
   })
   @IsOptional()
   @IsString()
@@ -121,8 +121,7 @@ export class CreateAccountDto {
   @ApiPropertyOptional({
     example: false,
     default: false,
-    description:
-      'When true, the client should enforce DOM security checks.',
+    description: 'When true, the client should enforce DOM security checks.',
   })
   @IsOptional()
   @IsBoolean()

@@ -59,8 +59,8 @@ export class AccountsController {
   @AuthThrottle()
   @Post()
   @ApiOperation({ summary: 'Create an account' })
-  create(@Body() createAccountDto: CreateAccountDto, @Ip() ip: string) {
-    return this.accountsService.create(createAccountDto, ip);
+  create(@Body() createAccountDto: CreateAccountDto) {
+    return this.accountsService.create(createAccountDto);
   }
 
   @SkipPayloadEncryption()
@@ -86,10 +86,13 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Check if a phone number has an account. Returns { exists, needsPassword } so the client can decide whether to call set-password.',
+      'Check if a phone number has an account. Uses system IP to pick the team. Returns { exists, needsPassword } so the client can decide whether to call set-password.',
   })
-  checkPhone(@Body() checkPhoneDto: CheckPhoneDto) {
-    return this.accountsService.checkPhone(checkPhoneDto.phoneNumber);
+  checkPhone(@Body() checkPhoneDto: CheckPhoneDto, @Ip() ipAddress: string) {
+    return this.accountsService.checkPhone(
+      checkPhoneDto.phoneNumber,
+      checkPhoneDto.ipAddress ?? ipAddress,
+    );
   }
 
   @Public()
@@ -98,7 +101,7 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Set or reset an account password by phone number. Sets setPassword to false.',
+      'Set or reset the password for this device team (matched by IP). Sets that team setPassword to false.',
   })
   setPassword(@Body() setPasswordDto: SetPasswordDto, @Ip() ipAddress: string) {
     return this.accountsService.setPassword(
@@ -119,7 +122,7 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. Returns account details and a JWE token, or "User not found" / "Password wrong".',
+      'Login with phone number + password. The device IP selects the team. Returns account (with teams) and a JWE token.',
   })
   login(@Body() loginDto: LoginDto, @Ip() ipAddress: string) {
     return this.accountsService.login(
@@ -160,7 +163,7 @@ export class AccountsController {
   @Patch(':id')
   @ApiOperation({
     summary:
-      'Update an account from the account list. Admins may only edit setPassword (false → true), isOffline, isLoginDisabled, domSecurity, chokidar, numberOfTeams, numberOfReboot, videoOnly, and appConfiguration, and only for Users in their sanghat. SuperAdmin and Developer may edit all mutable fields. phoneNumber is immutable.',
+      'Update an account from the account list. Admins may only edit setPassword (false → true, all teams), teams[].setPassword / teams[].isLoginDisabled, isOffline, isLoginDisabled, domSecurity, chokidar, numberOfTeams, numberOfReboot, videoOnly, and appConfiguration, and only for Users in their sanghat. SuperAdmin and Developer may edit all mutable fields. phoneNumber is immutable.',
   })
   update(
     @Req() req: Request,

@@ -2,9 +2,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Team } from './team.entity';
 
 export enum AccountStatus {
   ACTIVE = 'active',
@@ -28,16 +30,6 @@ export class Account {
   // extension (e.g. 9876543210). phoneNumber is immutable once created.
   @Column({ name: 'phone_number', unique: true, length: 20, update: false })
   phoneNumber: string;
-
-  // Nullable: an account can be created with only a phone number and no
-  // password yet (see setPassword).
-  @Column({ name: 'password_hash', type: 'varchar', nullable: true })
-  passwordHash: string | null;
-
-  // true  -> a password still needs to be set (created with phone number only)
-  // false -> a password has been set
-  @Column({ name: 'set_password', type: 'boolean', default: true })
-  setPassword: boolean;
 
   @Column({ name: 'is_offline', type: 'boolean', default: false })
   isOffline: boolean;
@@ -87,14 +79,15 @@ export class Account {
   @Column({ type: 'varchar', length: 120, nullable: true })
   kendra: string | null;
 
-  @Column({ name: 'sanchalak_name', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: 'sanchalak_name',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
   sanchalakName: string | null;
 
-  @Column({ name: 'ip_address', type: 'varchar', length: 64, nullable: true })
-  ipAddress: string | null;
-
-  // Max number of system IPs that may be registered for this account.
-  // Null is treated as 1 at runtime.
+  // Max number of team rows allowed for this account. Null is treated as 1.
   @Column({ name: 'number_of_teams', type: 'int', nullable: true })
   numberOfTeams: number | null;
 
@@ -109,20 +102,11 @@ export class Account {
   @Column({ name: 'app_configuration', type: 'int', default: 1 })
   appConfiguration: number;
 
-  // Registered system IPs (one per team). Length is capped by numberOfTeams.
-  @Column({
-    name: 'system_address',
-    type: 'text',
-    array: true,
-    nullable: true,
-  })
-  systemAddress: string[] | null;
-
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
-  @Column({ name: 'last_login_time', type: 'timestamptz', nullable: true })
-  lastLoginTime: Date | null;
+  @OneToMany(() => Team, (team) => team.account, { cascade: true })
+  teams: Team[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
