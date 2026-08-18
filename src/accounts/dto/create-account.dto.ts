@@ -4,13 +4,12 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
-  MinLength,
 } from 'class-validator';
 import { AccountRole, AccountStatus } from '../entities/account.entity';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
@@ -27,101 +26,55 @@ export class CreateAccountDto {
   @ApiPropertyOptional({
     example: 2,
     minimum: 1,
+    maximum: 20,
     description:
-      'Number of teams / systems allowed for this account. Caps how many IPs can be stored in systemAddress. Defaults to 1 when null.',
+      'Number of teams enabled for this account. Team credentials are stored separately in team_access.',
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(20)
   numberOfTeams?: number;
 
-  @ApiPropertyOptional({
-    example: 0,
-    minimum: 0,
-    default: 0,
-    description: 'Number of reboots recorded for this account.',
-  })
+  @ApiPropertyOptional({ example: 0, minimum: 0, default: 0 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
   numberOfReboot?: number;
 
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description: 'When true, the client should play video only.',
-  })
+  @ApiPropertyOptional({ example: false, default: false })
   @IsOptional()
   @IsBoolean()
   videoOnly?: boolean;
 
-  @ApiPropertyOptional({
-    example: 'S3curePass!',
-    minLength: 6,
-    description:
-      'Optional. If provided, setPassword is stored as false. If omitted, the account is created with setPassword=true.',
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
-  password?: string;
-
-  @ApiPropertyOptional({
-    enum: AccountStatus,
-    default: AccountStatus.ACTIVE,
-  })
+  @ApiPropertyOptional({ enum: AccountStatus, default: AccountStatus.ACTIVE })
   @IsOptional()
   @IsEnum(AccountStatus)
   status?: AccountStatus;
 
-  @ApiPropertyOptional({
-    enum: AccountRole,
-    default: AccountRole.USER,
-    description:
-      'Account role. Defaults to User when omitted. Allowed: User, Admin, SuperAdmin, Developer.',
-  })
+  @ApiPropertyOptional({ enum: AccountRole, default: AccountRole.USER })
   @IsOptional()
   @IsEnum(AccountRole)
   role?: AccountRole;
 
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description: 'Whether this account is offline-only.',
-  })
+  @ApiPropertyOptional({ example: false, default: false })
   @IsOptional()
   @IsBoolean()
   isOffline?: boolean;
 
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description:
-      'When true, the account cannot authenticate: check-phone, login and set-password all fail.',
-  })
+  @ApiPropertyOptional({ example: false, default: false })
   @IsOptional()
   @IsBoolean()
   isLoginDisabled?: boolean;
 
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description:
-      'When true, the client should enforce DOM security checks.',
-  })
+  @ApiPropertyOptional({ example: false, default: false })
   @IsOptional()
   @IsBoolean()
   domSecurity?: boolean;
 
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description:
-      'When true, the client should enable chokidar filesystem watching.',
-  })
+  @ApiPropertyOptional({ example: false, default: false })
   @IsOptional()
   @IsBoolean()
   chokidar?: boolean;
@@ -170,7 +123,7 @@ export class CreateAccountDto {
 
   @ApiPropertyOptional({
     example: { source: 'mobile-app', referredBy: 'admin' },
-    description: 'Arbitrary JSON metadata.',
+    description: 'Arbitrary account-level JSON metadata.',
   })
   @IsOptional()
   @IsObject()
