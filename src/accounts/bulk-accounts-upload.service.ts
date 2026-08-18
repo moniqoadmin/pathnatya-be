@@ -132,7 +132,9 @@ export class BulkAccountsUploadService {
     batch: PendingAccount[],
     result: BulkUploadResult,
   ): Promise<void> {
-    if (batch.length === 0) return;
+    if (batch.length === 0) {
+      return;
+    }
 
     try {
       await this.accountsRepository.insert(
@@ -140,8 +142,13 @@ export class BulkAccountsUploadService {
       );
       result.created += batch.length;
     } catch (error) {
-      if (!this.isUniqueViolation(error)) throw error;
+      if (!this.isUniqueViolation(error)) {
+        throw error;
+      }
 
+      // A concurrent upload may insert a phone number after our initial
+      // duplicate lookup. Only in that rare case, fall back to per-row inserts
+      // so one duplicate does not fail the entire batch.
       for (const item of batch) {
         try {
           await this.accountsRepository.insert(
@@ -169,10 +176,15 @@ export class BulkAccountsUploadService {
     existingPhones: Set<string>,
   ): Account {
     const phoneNumber = this.normalizePhone(values.phoneNumber);
-    if (!phoneNumber) throw new Error('Mobile Number is missing');
-    if (!isSupportedPhoneNumber(phoneNumber))
+    if (!phoneNumber) {
+      throw new Error('Mobile Number is missing');
+    }
+    if (!isSupportedPhoneNumber(phoneNumber)) {
       throw new Error('phone number is not 10 digits');
-    if (existingPhones.has(phoneNumber)) throw new Error('number already exists');
+    }
+    if (existingPhones.has(phoneNumber)) {
+      throw new Error('number already exists');
+    }
 
     const role = values.role?.trim();
     if (role && !Object.values(AccountRole).includes(role as AccountRole)) {
@@ -190,9 +202,14 @@ export class BulkAccountsUploadService {
 
     return this.accountsRepository.create({
       phoneNumber,
+      passwordHash: null,
+      setPassword: true,
       status: AccountStatus.ACTIVE,
       role: (role as AccountRole) || AccountRole.USER,
       isOffline: false,
+      isLoginDisabled: false,
+      domSecurity: true,
+      chokidar: true,
       country: country ?? null,
       sanghat: values.sanghat?.trim() || null,
       jilha: values.jilha?.trim() || null,
@@ -202,8 +219,12 @@ export class BulkAccountsUploadService {
       sanchalakName: values.sanchalakName?.trim() || null,
       numberOfTeams: numberOfTeams ?? null,
       numberOfReboot: 0,
+      videoOnly: false,
       appConfiguration: 1,
       metadata: kendraType ? { kendraType } : null,
+      ipAddress: null,
+      systemAddress: null,
+      lastLoginTime: null,
     });
   }
 
@@ -228,8 +249,12 @@ export class BulkAccountsUploadService {
     for (const sheet of workbook.worksheets) {
       const scanLimit = Math.min(40, sheet.rowCount);
       for (let rowNumber = 1; rowNumber <= scanLimit; rowNumber++) {
-        const fieldToColumn = this.resolveHeaderColumns(sheet.getRow(rowNumber));
-        if (!fieldToColumn.has('phoneNumber')) continue;
+        const fieldToColumn = this.resolveHeaderColumns(
+          sheet.getRow(rowNumber),
+        );
+        if (!fieldToColumn.has('phoneNumber')) {
+          continue;
+        }
 
         const isKendraSheet = sheet.name.trim().toLowerCase() === 'kendra';
         const score = fieldToColumn.size + (isKendraSheet ? 100 : 0);
@@ -245,17 +270,24 @@ export class BulkAccountsUploadService {
         'Could not find a sheet with a Mobile Number column',
       );
     }
+
     return best;
   }
 
   private resolveHeaderColumns(headerRow: ExcelJS.Row): Map<string, number> {
     const fieldToColumn = new Map<string, number>();
+
     headerRow.eachCell((cell, colNumber) => {
       const normalized = normalizeHeader(this.cellToString(cell.value));
-      if (!normalized) return;
+      if (!normalized) {
+        return;
+      }
 
       let best:
-        | { field: (typeof TEMPLATE_COLUMNS)[number]['field']; aliasLen: number }
+        | {
+            field: (typeof TEMPLATE_COLUMNS)[number]['field'];
+            aliasLen: number;
+          }
         | undefined;
 
       for (const column of TEMPLATE_COLUMNS) {
@@ -274,15 +306,20 @@ export class BulkAccountsUploadService {
         fieldToColumn.set(best.field, colNumber);
       }
     });
+
     return fieldToColumn;
   }
 
   private resolveCountry(values: Record<string, string>): string | undefined {
     const countryName = values.country?.trim();
-    if (countryName) return countryName;
+    if (countryName) {
+      return countryName;
+    }
 
     const countryCode = values.countryCode?.trim().replace(/\.0$/, '');
-    if (!countryCode) return undefined;
+    if (!countryCode) {
+      return undefined;
+    }
 
     const mapped = COUNTRY_CODE_TO_NAME[countryCode];
     if (!mapped) {
@@ -320,7 +357,9 @@ export class BulkAccountsUploadService {
 
   private countryFromCode(raw: string | undefined): string | null {
     const countryCode = raw?.trim().replace(/\.0$/, '');
-    if (!countryCode) return null;
+    if (!countryCode) {
+      return null;
+    }
     return COUNTRY_CODE_TO_NAME[countryCode] ?? countryCode;
   }
 
@@ -329,16 +368,20 @@ export class BulkAccountsUploadService {
     fieldName: string,
   ): number | undefined {
     const value = raw?.trim().replace(/\.0$/, '');
-    if (!value) return undefined;
+    if (!value) {
+      return undefined;
+    }
     const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
-      throw new Error(`${fieldName} must be an integer between 1 and 20`);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new Error(`${fieldName} must be an integer >= 1`);
     }
     return parsed;
   }
 
   private cellToString(value: ExcelJS.CellValue): string {
-    if (value === null || value === undefined) return '';
+    if (value === null || value === undefined) {
+      return '';
+    }
     if (typeof value === 'object') {
       const obj = value as {
         text?: string;
@@ -347,11 +390,18 @@ export class BulkAccountsUploadService {
         sharedFormula?: unknown;
         richText?: Array<{ text?: string }>;
       };
-      if (obj.formula !== undefined || obj.sharedFormula !== undefined) return '';
-      if (Array.isArray(obj.richText)) {
-        return obj.richText.map((part) => part.text ?? '').join('').trim();
+      if (obj.formula !== undefined || obj.sharedFormula !== undefined) {
+        return '';
       }
-      if (typeof obj.text === 'string') return obj.text.trim();
+      if (Array.isArray(obj.richText)) {
+        return obj.richText
+          .map((part) => part.text ?? '')
+          .join('')
+          .trim();
+      }
+      if (typeof obj.text === 'string') {
+        return obj.text.trim();
+      }
       if (obj.result !== undefined && obj.result !== null) {
         return String(obj.result).trim();
       }
@@ -368,8 +418,12 @@ export class BulkAccountsUploadService {
   }
 
   private toErrorMessage(error: unknown): string {
-    if (this.isUniqueViolation(error)) return 'number already exists';
-    if (error instanceof Error) return error.message;
+    if (this.isUniqueViolation(error)) {
+      return 'number already exists';
+    }
+    if (error instanceof Error) {
+      return error.message;
+    }
     return 'Unknown error';
   }
 }
