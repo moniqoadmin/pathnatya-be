@@ -86,7 +86,7 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Check if a phone number has an account. Uses system IP to pick the team. Returns { exists, needsPassword } so the client can decide whether to call set-password.',
+      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword } from that team setPassword flag. Errors if the matching team has isLoginDisabled.',
   })
   checkPhone(@Body() checkPhoneDto: CheckPhoneDto, @Ip() ipAddress: string) {
     return this.accountsService.checkPhone(
@@ -101,7 +101,7 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Set or reset the password for this device team (matched by IP). Sets that team setPassword to false.',
+      'Set or reset the password for this device team (matched by ipAddress / MAC). Creates a team when this is a new IP and the account is under its team cap.',
   })
   setPassword(@Body() setPasswordDto: SetPasswordDto, @Ip() ipAddress: string) {
     return this.accountsService.setPassword(
@@ -122,7 +122,7 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. The device IP selects the team. Returns account (with teams) and a JWE token.',
+      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account (with teams) and a JWE token.',
   })
   login(@Body() loginDto: LoginDto, @Ip() ipAddress: string) {
     return this.accountsService.login(

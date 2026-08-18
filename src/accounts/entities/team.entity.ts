@@ -25,7 +25,7 @@ export class Team {
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
-  // 1-based index unique per account. Team 1 is created with the account.
+  // 1-based index unique per account. Created when a new device IP logs in.
   @Column({ name: 'team_number', type: 'int' })
   teamNumber: number;
 
@@ -37,8 +37,8 @@ export class Team {
   @Column({ name: 'set_password', type: 'boolean', default: true })
   setPassword: boolean;
 
-  // Bound device / IP for this team. Null until set-password (or login
-  // when the account allows 2+ teams).
+  // Bound device MAC / IP for this team (request field name: ipAddress).
+  // Set when this device first calls set-password or login.
   @Column({
     name: 'system_address',
     type: 'varchar',

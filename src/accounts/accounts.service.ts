@@ -108,12 +108,6 @@ export class AccountsService {
       );
     }
 
-    const hasPassword = createAccountDto.password !== undefined;
-    const passwordHash = hasPassword
-      ? await hashPassword(createAccountDto.password as string)
-      : null;
-    const teamCount = createAccountDto.numberOfTeams ?? 1;
-
     const account = this.accountsRepository.create({
       phoneNumber: createAccountDto.phoneNumber,
       status: createAccountDto.status,
@@ -134,9 +128,9 @@ export class AccountsService {
       numberOfReboot: createAccountDto.numberOfReboot ?? 0,
       videoOnly: createAccountDto.videoOnly ?? false,
       appConfiguration: createAccountDto.appConfiguration ?? 1,
-      teams: this.buildTeamSlots(teamCount, passwordHash),
     });
     const saved = await this.accountsRepository.save(account);
+    saved.teams = [];
     return this.toResponse(saved);
   }
 
@@ -433,19 +427,32 @@ export class AccountsService {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
-    const team = this.resolveTeamForDevice(
-      account,
-      ipAddress ?? null,
-      'check-phone',
-    );
-    if (team.isLoginDisabled) {
-      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+    const matched = this.findTeamBySystemAddress(account, ipAddress ?? null);
+    if (matched) {
+      if (matched.isLoginDisabled) {
+        throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+      }
+      return {
+        exists: true,
+        needsPassword: matched.setPassword || !matched.passwordHash,
+      };
     }
 
-    return {
-      exists: true,
-      needsPassword: team.setPassword || !team.passwordHash,
-    };
+    const unbound = account.teams.find(
+      (team) => !team.systemAddress && !team.isLoginDisabled,
+    );
+    if (unbound) {
+      return {
+        exists: true,
+        needsPassword: unbound.setPassword || !unbound.passwordHash,
+      };
+    }
+
+    if (account.teams.length >= this.maxTeams(account)) {
+      throw new ForbiddenException(SYSTEM_ADDRESS_LIMIT_MESSAGE);
+    }
+
+    return { exists: true, needsPassword: true };
   }
 
   async setPassword(
@@ -462,7 +469,11 @@ export class AccountsService {
     }
 
     const resolvedIp = setPasswordDto.ipAddress ?? ipAddress ?? null;
-    const team = this.resolveTeamForDevice(account, resolvedIp, 'set-password');
+    const team = await this.getOrCreateTeamForDevice(
+      account,
+      resolvedIp,
+      'set-password',
+    );
     if (team.isLoginDisabled) {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
@@ -504,7 +515,11 @@ export class AccountsService {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
-    const team = this.resolveTeamForDevice(account, resolvedIp, 'login');
+    const team = await this.getOrCreateTeamForDevice(
+      account,
+      resolvedIp,
+      'login',
+    );
     if (team.isLoginDisabled) {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
@@ -528,7 +543,7 @@ export class AccountsService {
     }
 
     await this.loginProtection.clear(loginDto.phoneNumber);
-    this.bindTeamOnLogin(account, team, resolvedIp);
+    this.bindTeamOnLogin(team, resolvedIp);
 
     team.lastLoginTime = new Date();
     await this.teamsRepository.save(team);
@@ -943,25 +958,6 @@ export class AccountsService {
     return account.numberOfTeams ?? 1;
   }
 
-  private buildTeamSlots(
-    count: number,
-    teamOnePasswordHash: string | null,
-  ): Team[] {
-    return Array.from({ length: Math.max(count, 1) }, (_, index) => {
-      const teamNumber = index + 1;
-      const passwordHash = teamNumber === 1 ? teamOnePasswordHash : null;
-      return this.teamsRepository.create({
-        teamNumber,
-        passwordHash,
-        setPassword: !passwordHash,
-        systemAddress: null,
-        metadata: null,
-        isLoginDisabled: false,
-        lastLoginTime: null,
-      });
-    });
-  }
-
   private requireTeam(account: Account, teamNumber: number): Team {
     const team = account.teams.find((item) => item.teamNumber === teamNumber);
     if (!team) {
@@ -1010,99 +1006,103 @@ export class AccountsService {
     account: Account,
     newCount: number,
   ): Promise<void> {
-    const existingNumbers = new Set(
-      account.teams.map((team) => team.teamNumber),
+    const registered = account.teams.filter(
+      (team) => team.systemAddress || team.passwordHash,
     );
-    for (let teamNumber = 1; teamNumber <= newCount; teamNumber++) {
-      if (!existingNumbers.has(teamNumber)) {
-        account.teams.push(
-          this.teamsRepository.create({
-            accountId: account.id,
-            teamNumber,
-            passwordHash: null,
-            setPassword: true,
-            systemAddress: null,
-            metadata: null,
-            isLoginDisabled: false,
-            lastLoginTime: null,
-          }),
-        );
-      }
+    if (registered.length > newCount) {
+      throw new BadRequestException(
+        `numberOfTeams cannot be less than the ${registered.length} registered team(s)`,
+      );
     }
 
-    const toRemove = account.teams.filter((team) => team.teamNumber > newCount);
+    const toRemove = account.teams.filter(
+      (team) =>
+        team.teamNumber > newCount && !team.systemAddress && !team.passwordHash,
+    );
     if (toRemove.length === 0) {
       return;
     }
 
-    const registered = toRemove.filter(
-      (team) => team.systemAddress || team.passwordHash,
+    account.teams = account.teams.filter(
+      (team) => !toRemove.some((item) => item === team),
     );
-    if (registered.length > 0) {
-      const boundCount = account.teams.filter(
-        (team) =>
-          team.teamNumber <= newCount ||
-          team.systemAddress ||
-          team.passwordHash,
-      ).length;
-      throw new BadRequestException(
-        `numberOfTeams cannot be less than the ${boundCount} registered team(s)`,
-      );
-    }
-    account.teams = account.teams.filter((team) => team.teamNumber <= newCount);
     const persisted = toRemove.filter((team) => team.id);
     if (persisted.length > 0) {
       await this.teamsRepository.remove(persisted);
     }
   }
 
-  private resolveTeamForDevice(
+  private findTeamBySystemAddress(
     account: Account,
     ip: string | null,
-    mode: 'login' | 'set-password' | 'check-phone',
-  ): Team {
-    const teams = [...(account.teams ?? [])].sort(
-      (a, b) => a.teamNumber - b.teamNumber,
-    );
-    if (teams.length === 0) {
-      throw new ForbiddenException(SYSTEM_ADDRESS_LIMIT_MESSAGE);
+  ): Team | undefined {
+    if (!ip) {
+      return undefined;
+    }
+    return account.teams.find((team) => team.systemAddress === ip);
+  }
+
+  // Teams are created when a new device IP first calls set-password,
+  // not when the account is created.
+  private async getOrCreateTeamForDevice(
+    account: Account,
+    ip: string | null,
+    mode: 'login' | 'set-password',
+  ): Promise<Team> {
+    const matched = this.findTeamBySystemAddress(account, ip);
+    if (matched) {
+      return matched;
     }
 
-    if (ip) {
-      const matched = teams.find((team) => team.systemAddress === ip);
-      if (matched) {
-        return matched;
-      }
-    }
-
-    const unbound = teams.find(
+    const unbound = account.teams.find(
       (team) => !team.systemAddress && !team.isLoginDisabled,
     );
     if (unbound) {
       return unbound;
     }
 
-    throw new ForbiddenException(
-      mode === 'set-password'
-        ? SYSTEM_ADDRESS_SET_PASSWORD_LIMIT_MESSAGE
-        : SYSTEM_ADDRESS_LIMIT_MESSAGE,
-    );
+    if (account.teams.length >= this.maxTeams(account)) {
+      throw new ForbiddenException(
+        mode === 'set-password'
+          ? SYSTEM_ADDRESS_SET_PASSWORD_LIMIT_MESSAGE
+          : SYSTEM_ADDRESS_LIMIT_MESSAGE,
+      );
+    }
+
+    if (mode === 'login') {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    return this.createTeamForDevice(account, ip);
   }
 
-  // Login binds a new IP onto an unbound team only when the account allows
-  // 2+ teams (same rule as the old systemAddress array). Single-team accounts
-  // bind on set-password, not on login.
-  private bindTeamOnLogin(
+  private async createTeamForDevice(
     account: Account,
-    team: Team,
     ip: string | null,
-  ): void {
+  ): Promise<Team> {
+    const teamNumber =
+      account.teams.reduce((max, team) => Math.max(max, team.teamNumber), 0) +
+      1;
+    const team = this.teamsRepository.create({
+      accountId: account.id,
+      teamNumber,
+      passwordHash: null,
+      setPassword: true,
+      systemAddress: ip,
+      metadata: null,
+      isLoginDisabled: false,
+      lastLoginTime: null,
+    });
+    const saved = await this.teamsRepository.save(team);
+    account.teams.push(saved);
+    return saved;
+  }
+
+  private bindTeamOnLogin(team: Team, ip: string | null): void {
     if (!ip || team.systemAddress) {
       return;
     }
-    if (this.maxTeams(account) >= 2) {
-      team.systemAddress = ip;
-    }
+    team.systemAddress = ip;
   }
 
   private toResponse(account: Account): AccountResponse {

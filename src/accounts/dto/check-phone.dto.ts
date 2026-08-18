@@ -7,9 +7,13 @@ export class CheckPhoneDto {
   @IsSupportedPhoneNumber()
   phoneNumber: string;
 
-  @ApiPropertyOptional({ example: '192.168.1.1' })
+  @ApiPropertyOptional({
+    example: 'AA:BB:CC:DD:EE:FF',
+    description:
+      'Device MAC address (field name is ipAddress). Used to match an existing team.',
+  })
   @IsOptional()
   @IsString()
-  @MaxLength(45)
+  @MaxLength(64)
   ipAddress?: string;
 }

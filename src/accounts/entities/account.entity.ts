@@ -88,6 +88,7 @@ export class Account {
   sanchalakName: string | null;
 
   // Max number of team rows allowed for this account. Null is treated as 1.
+  // Rows are created when a new device IP logs in, not when the account is.
   @Column({ name: 'number_of_teams', type: 'int', nullable: true })
   numberOfTeams: number | null;
 

@@ -12,9 +12,9 @@ export class LoginDto {
   @IsNotEmpty()
   password: string;
 
-  @ApiPropertyOptional({ example: '192.168.1.1' })
+  @ApiPropertyOptional({ example: 'AA:BB:CC:DD:EE:FF' })
   @IsOptional()
   @IsString()
-  @MaxLength(45)
+  @MaxLength(64)
   ipAddress?: string;
 }

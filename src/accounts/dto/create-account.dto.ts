@@ -28,7 +28,7 @@ export class CreateAccountDto {
     example: 2,
     minimum: 1,
     description:
-      'Number of teams / systems allowed for this account. Team rows are pre-created up to this cap. Defaults to 1 when null.',
+      'Max number of teams / systems allowed for this account. Team rows are created when a new device IP logs in, up to this cap. Defaults to 1 when null.',
   })
   @IsOptional()
   @Type(() => Number)
@@ -73,7 +73,7 @@ export class CreateAccountDto {
     example: 'S3curePass!',
     minLength: 6,
     description:
-      'Optional. If provided, team 1 is created with this password (setPassword false). Other teams still need to set a password. If omitted, every team is created with setPassword=true.',
+      'Optional. Ignored on create: team rows are not created until a device IP logs in. The first device should call set-password.',
   })
   @IsOptional()
   @IsString()
