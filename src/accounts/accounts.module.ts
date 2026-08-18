@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Account } from './entities/account.entity';
+import { TeamAccess } from './entities/team-access.entity';
 import { AccountsService } from './accounts.service';
 import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
 import { AccountsController } from './accounts.controller';
@@ -11,7 +12,7 @@ import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Account])],
+  imports: [TypeOrmModule.forFeature([Account, TeamAccess])],
   controllers: [AccountsController],
   providers: [
     AccountsService,
