@@ -7,8 +7,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { timingSafeEqual } from 'crypto';
 import { buildCacheConfig } from './config/cache.config';
 import { buildDatabaseConfig } from './config/database.config';
-import { AppConfiguration } from './config/entities/app-configuration.entity';
-import { ServerApiUrl } from './config/entities/server-api-url.entity';
+import { ConfigurationStorageModule } from './config/configuration-storage.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
@@ -72,7 +71,7 @@ function loadTestKeyMatches(
       inject: [ConfigService],
       useFactory: (config: ConfigService) => buildDatabaseConfig(config),
     }),
-    TypeOrmModule.forFeature([AppConfiguration, ServerApiUrl]),
+    ConfigurationStorageModule,
     CacheModule.registerAsync({
       isGlobal: true,
       inject: [ConfigService],
