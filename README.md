@@ -120,4 +120,4 @@ Entities are auto-loaded (`autoLoadEntities: true`), so once the module is impor
 
 ## Production note
 
-Set `DB_SYNCHRONIZE=false` in production and use TypeORM migrations instead of schema sync.
+Set `DB_SYNCHRONIZE=false` in production. Schema changes should be applied to the database separately rather than relying on TypeORM auto-sync.
