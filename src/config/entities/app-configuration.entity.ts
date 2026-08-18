@@ -14,5 +14,5 @@ export class AppConfiguration {
   videoConfig: VideoConfig;
 
   @Column({ name: 'video_files', type: 'jsonb', default: () => "'[]'::jsonb" })
-  videoFiles: unknown[];
+  videoFiles: Record<string, unknown>[];
 }

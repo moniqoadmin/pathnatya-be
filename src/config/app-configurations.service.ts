@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { UpsertAppConfigurationDto } from './dto/upsert-app-configuration.dto';
 import { AppConfiguration } from './entities/app-configuration.entity';
 
@@ -21,7 +22,7 @@ export class AppConfigurationsService {
         id: dto.id,
         videoConfig: dto.videoConfig,
         videoFiles: dto.videoFiles,
-      },
+      } as QueryDeepPartialEntity<AppConfiguration>,
       ['id'],
     );
 

@@ -20,5 +20,5 @@ export class UpsertAppConfigurationDto {
 
   @ApiProperty({ type: [Object], example: [] })
   @IsArray()
-  videoFiles: unknown[];
+  videoFiles: Record<string, unknown>[];
 }
