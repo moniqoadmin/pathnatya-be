@@ -1,6 +1,6 @@
 {
   "name": "pathnatya-backend-poc",
-  "version": "0.0.1",
+  "version": "1.0.1",
   "description": "NestJS backend boilerplate connected to PostgreSQL",
   "author": "",
   "private": true,
