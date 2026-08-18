@@ -46,8 +46,13 @@ const SYSTEM_ADDRESS_SET_PASSWORD_LIMIT_MESSAGE =
   'System address limit reached for this account';
 
 export interface LoginResponse {
-  account: AccountResponse;
+  account: Omit<AccountResponse, 'teams'>;
+  team: TeamResponse;
   token: string;
+}
+
+export interface SetPasswordResponse extends AccountResponse {
+  teamNumber: number;
 }
 
 export interface CheckPhoneResult {
@@ -437,7 +442,7 @@ export class AccountsService {
   async setPassword(
     setPasswordDto: SetPasswordDto,
     ipAddress?: string | null,
-  ): Promise<AccountResponse> {
+  ): Promise<SetPasswordResponse> {
     const account = await this.findAccountByPhone(setPasswordDto.phoneNumber);
     if (!account) {
       throw new NotFoundException('User not found');
@@ -460,7 +465,10 @@ export class AccountsService {
     }
     await this.teamsRepository.save(team);
 
-    return this.toResponse(account);
+    return {
+      ...this.toResponse(account),
+      teamNumber: team.teamNumber,
+    };
   }
 
   async remove(id: string): Promise<void> {
@@ -518,8 +526,12 @@ export class AccountsService {
 
     team.lastLoginTime = new Date();
     await this.teamsRepository.save(team);
+
+    const { teams: _teams, ...accountWithoutTeams } = this.toResponse(account);
+    void _teams;
     return {
-      account: this.toResponse(account),
+      account: accountWithoutTeams,
+      team: this.toTeamResponse(team),
       token: await this.jweService.encryptAccountToken(account.id),
     };
   }
@@ -1075,15 +1087,17 @@ export class AccountsService {
     team.systemAddress = ip;
   }
 
+  private toTeamResponse(team: Team): TeamResponse {
+    const { passwordHash, account: teamAccount, ...rest } = team;
+    void passwordHash;
+    void teamAccount;
+    return rest;
+  }
+
   private toResponse(account: Account): AccountResponse {
     const teams = [...(account.teams ?? [])]
       .sort((a, b) => a.teamNumber - b.teamNumber)
-      .map((team) => {
-        const { passwordHash, account: teamAccount, ...rest } = team;
-        void passwordHash;
-        void teamAccount;
-        return rest;
-      });
+      .map((team) => this.toTeamResponse(team));
     const { teams: _teams, ...rest } = account;
     void _teams;
     return { ...rest, teams };

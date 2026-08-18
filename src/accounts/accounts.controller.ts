@@ -101,7 +101,7 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Set or reset the password for this device team (matched by ipAddress / MAC). Creates a team when this is a new IP and the account is under its team cap.',
+      'Set or reset the password for this device team (matched by ipAddress / MAC). Creates a team when this is a new IP and the account is under its team cap. Returns the account plus the teamNumber that was created or matched.',
   })
   setPassword(@Body() setPasswordDto: SetPasswordDto, @Ip() ipAddress: string) {
     return this.accountsService.setPassword(
@@ -122,7 +122,7 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account (with teams) and a JWE token.',
+      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token.',
   })
   login(@Body() loginDto: LoginDto, @Ip() ipAddress: string) {
     return this.accountsService.login(
