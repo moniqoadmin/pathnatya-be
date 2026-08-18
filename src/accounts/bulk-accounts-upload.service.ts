@@ -220,6 +220,7 @@ export class BulkAccountsUploadService {
       numberOfTeams: numberOfTeams ?? null,
       numberOfReboot: 0,
       videoOnly: false,
+      appConfiguration: 1,
       metadata: kendraType ? { kendraType } : null,
       ipAddress: null,
       systemAddress: null,

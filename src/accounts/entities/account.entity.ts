@@ -105,6 +105,10 @@ export class Account {
   @Column({ name: 'video_only', type: 'boolean', default: false })
   videoOnly: boolean;
 
+  // ID of the app_configurations row assigned to this account.
+  @Column({ name: 'app_configuration', type: 'int', default: 1 })
+  appConfiguration: number;
+
   // Registered system IPs (one per team). Length is capped by numberOfTeams.
   @Column({
     name: 'system_address',

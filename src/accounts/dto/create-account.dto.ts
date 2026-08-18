@@ -58,6 +58,18 @@ export class CreateAccountDto {
   videoOnly?: boolean;
 
   @ApiPropertyOptional({
+    example: 1,
+    minimum: 1,
+    default: 1,
+    description: 'ID of the app_configurations row assigned to this account.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  appConfiguration?: number;
+
+  @ApiPropertyOptional({
     example: 'S3curePass!',
     minLength: 6,
     description:

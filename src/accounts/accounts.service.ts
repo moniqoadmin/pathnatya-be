@@ -126,6 +126,7 @@ export class AccountsService {
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
       numberOfReboot: createAccountDto.numberOfReboot ?? 0,
       videoOnly: createAccountDto.videoOnly ?? false,
+      appConfiguration: createAccountDto.appConfiguration ?? 1,
       systemAddress: null,
     });
     const saved = await this.accountsRepository.save(account);
@@ -216,6 +217,7 @@ export class AccountsService {
     'numberOfTeams',
     'numberOfReboot',
     'videoOnly',
+    'appConfiguration',
   ]);
 
   async update(
@@ -309,6 +311,9 @@ export class AccountsService {
     }
     if (updateAccountDto.videoOnly !== undefined) {
       account.videoOnly = updateAccountDto.videoOnly;
+    }
+    if (updateAccountDto.appConfiguration !== undefined) {
+      account.appConfiguration = updateAccountDto.appConfiguration;
     }
 
     const saved = await this.accountsRepository.save(account);
