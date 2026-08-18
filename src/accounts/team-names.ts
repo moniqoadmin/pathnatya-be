@@ -1,0 +1,26 @@
+export const TEAM_NAMES: Record<number, string> = {
+  1: 'Krishna',
+  2: 'Team 2',
+  3: 'Team 3',
+  4: 'Team 4',
+  5: 'Team 5',
+  6: 'Team 6',
+  7: 'Team 7',
+  8: 'Team 8',
+  9: 'Team 9',
+  10: 'Team 10',
+  11: 'Team 11',
+  12: 'Team 12',
+  13: 'Team 13',
+  14: 'Team 14',
+  15: 'Team 15',
+  16: 'Team 16',
+  17: 'Team 17',
+  18: 'Team 18',
+  19: 'Team 19',
+  20: 'Team 20',
+};
+
+export function getTeamName(teamNumber: number): string {
+  return TEAM_NAMES[teamNumber] ?? `Team ${teamNumber}`;
+}
