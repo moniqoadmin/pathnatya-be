@@ -29,6 +29,7 @@ export class Team {
   @Column({ name: 'team_number', type: 'int' })
   teamNumber: number;
 
+  // Password is never stored in plaintext; set via set-password / update DTOs.
   @Column({ name: 'password_hash', type: 'varchar', nullable: true })
   passwordHash: string | null;
 
@@ -50,6 +51,7 @@ export class Team {
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  // When true, this team cannot authenticate (check-phone, login, set-password).
   @Column({ name: 'is_login_disabled', type: 'boolean', default: false })
   isLoginDisabled: boolean;
 

@@ -25,6 +25,11 @@ export class Log {
   @Column({ type: 'boolean', default: false })
   tampered: boolean;
 
+  // Device MAC (request field name: ipAddress). Stored for FILES_TAMPERED
+  // so the matching team can be disabled without locking the whole account.
+  @Column({ name: 'ip_address', type: 'varchar', length: 64, nullable: true })
+  ipAddress: string | null;
+
   @Column({ name: 'meta', type: 'jsonb', nullable: true })
   meta: Record<string, unknown> | null;
 

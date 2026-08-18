@@ -163,7 +163,7 @@ export class AccountsController {
   @Patch(':id')
   @ApiOperation({
     summary:
-      'Update an account from the account list. Admins may only edit setPassword (false → true, all teams), teams[].setPassword / teams[].isLoginDisabled, isOffline, isLoginDisabled, domSecurity, chokidar, numberOfTeams, numberOfReboot, videoOnly, and appConfiguration, and only for Users in their sanghat. SuperAdmin and Developer may edit all mutable fields. phoneNumber is immutable.',
+      'Update an account from the account list. Admins may only edit setPassword (false → true, all teams), teams[].setPassword / teams[].isLoginDisabled, isOffline, numberOfTeams, numberOfReboot, and appConfiguration, and only for Users in their sanghat. SuperAdmin and Developer may edit all mutable fields. phoneNumber is immutable.',
   })
   update(
     @Req() req: Request,

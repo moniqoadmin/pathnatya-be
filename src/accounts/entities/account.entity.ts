@@ -8,12 +8,6 @@ import {
 } from 'typeorm';
 import { Team } from './team.entity';
 
-export enum AccountStatus {
-  ACTIVE = 'active',
-  INACTIVE = 'inactive',
-  SUSPENDED = 'suspended',
-}
-
 export enum AccountRole {
   USER = 'User',
   ADMIN = 'Admin',
@@ -33,26 +27,6 @@ export class Account {
 
   @Column({ name: 'is_offline', type: 'boolean', default: false })
   isOffline: boolean;
-
-  // When true, the account is blocked from authenticating: check-phone,
-  // login and set-password all reject regardless of credentials.
-  @Column({ name: 'is_login_disabled', type: 'boolean', default: false })
-  isLoginDisabled: boolean;
-
-  // When true, the client should enforce DOM security checks for this account.
-  @Column({ name: 'dom_security', type: 'boolean', default: false })
-  domSecurity: boolean;
-
-  // When true, the client should enable chokidar filesystem watching.
-  @Column({ name: 'chokidar', type: 'boolean', default: false })
-  chokidar: boolean;
-
-  @Column({
-    type: 'enum',
-    enum: AccountStatus,
-    default: AccountStatus.ACTIVE,
-  })
-  status: AccountStatus;
 
   @Column({
     type: 'enum',
@@ -94,10 +68,6 @@ export class Account {
 
   @Column({ name: 'number_of_reboot', type: 'int', default: 0 })
   numberOfReboot: number;
-
-  // When true, the client should play video only (no other media).
-  @Column({ name: 'video_only', type: 'boolean', default: false })
-  videoOnly: boolean;
 
   // ID of the app_configurations row assigned to this account.
   @Column({ name: 'app_configuration', type: 'int', default: 1 })

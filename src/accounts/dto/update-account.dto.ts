@@ -3,7 +3,10 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsNotEmpty,
   IsOptional,
+  IsString,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { CreateAccountDto } from './create-account.dto';
@@ -22,6 +25,18 @@ export class UpdateAccountDto extends PartialType(
   @IsOptional()
   @IsBoolean()
   setPassword?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'S3curePass!',
+    minLength: 6,
+    description:
+      'Optional. Sets team 1 password and setPassword to false. Prefer teams[].password to set a specific team.',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  password?: string;
 
   @ApiPropertyOptional({
     type: [UpdateTeamDto],

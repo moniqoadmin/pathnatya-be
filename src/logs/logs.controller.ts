@@ -18,7 +18,7 @@ import { Request } from 'express';
 import { AppKeyGuard } from '../accounts/guards/app-key.guard';
 import { JweAuthGuard } from '../accounts/guards/jwe-auth.guard';
 import { CreateLogDto } from './dto/create-log.dto';
-import { LogsService } from './logs.service'
+import { LogsService } from './logs.service';
 
 @ApiTags('logs')
 @ApiHeader({
@@ -35,7 +35,7 @@ export class LogsController {
   @Post()
   @ApiOperation({
     summary:
-      'Create a log event. Account id and phone number are taken from the auth token.',
+      'Create a log event. Account id and phone number are taken from the auth token. FILES_TAMPERED requires ipAddress (MAC) and disables login only for that device team.',
   })
   create(@Req() req: Request, @Body() createLogDto: CreateLogDto) {
     return this.logsService.create(req.user!.sub, createLogDto);

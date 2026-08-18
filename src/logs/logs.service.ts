@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AccountsService } from '../accounts/accounts.service';
@@ -13,6 +13,7 @@ export type LogResponse = {
   phoneNumber: string;
   event: string;
   tampered: boolean;
+  ipAddress: string | null;
   meta: Record<string, unknown> | null;
   createdAt: Date;
 };
@@ -27,9 +28,18 @@ export class LogsService {
 
   async create(accountId: string, dto: CreateLogDto): Promise<LogResponse> {
     const account = await this.accountsService.findOne(accountId);
+    const ipAddress = dto.ipAddress?.trim() || null;
 
     if (dto.event === FILES_TAMPERED_EVENT) {
-      await this.accountsService.disableLogin(account.id);
+      if (!ipAddress) {
+        throw new BadRequestException(
+          'ipAddress (MAC) is required for FILES_TAMPERED',
+        );
+      }
+      await this.accountsService.disableTeamLoginByAddress(
+        account.id,
+        ipAddress,
+      );
     }
 
     const log = this.logsRepository.create({
@@ -37,6 +47,7 @@ export class LogsService {
       phoneNumber: account.phoneNumber,
       event: dto.event,
       tampered: dto.tampered ?? false,
+      ipAddress,
       meta: dto.meta ?? null,
     });
 
@@ -69,6 +80,7 @@ export class LogsService {
       phoneNumber: log.phoneNumber,
       event: log.event,
       tampered: log.tampered,
+      ipAddress: log.ipAddress,
       meta: log.meta,
       createdAt: log.createdAt,
     };

@@ -10,7 +10,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { Account, AccountRole, AccountStatus } from './entities/account.entity';
+import { Account, AccountRole } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
@@ -37,7 +37,7 @@ export type AccountResponse = Omit<Account, 'teams'> & {
 };
 
 const LOGIN_DISABLED_MESSAGE =
-  'Login has been disabled for this account. Please contact your Jababdar Bhai.';
+  'Login has been disabled for this device. Please contact your Jababdar Bhai.';
 
 const SYSTEM_ADDRESS_LIMIT_MESSAGE =
   'Login not allowed from this system, use the same system as the one used the first time. If the system is not available, please contact your Jababdar Bhai.';
@@ -110,12 +110,8 @@ export class AccountsService {
 
     const account = this.accountsRepository.create({
       phoneNumber: createAccountDto.phoneNumber,
-      status: createAccountDto.status,
       role: createAccountDto.role ?? AccountRole.USER,
       isOffline: createAccountDto.isOffline ?? false,
-      isLoginDisabled: createAccountDto.isLoginDisabled ?? false,
-      domSecurity: createAccountDto.domSecurity ?? false,
-      chokidar: createAccountDto.chokidar ?? false,
       country: createAccountDto.country ?? null,
       sanghat: createAccountDto.sanghat ?? null,
       jilha: createAccountDto.jilha ?? null,
@@ -126,7 +122,6 @@ export class AccountsService {
       metadata: createAccountDto.metadata ?? null,
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
       numberOfReboot: createAccountDto.numberOfReboot ?? 0,
-      videoOnly: createAccountDto.videoOnly ?? false,
       appConfiguration: createAccountDto.appConfiguration ?? 1,
     });
     const saved = await this.accountsRepository.save(account);
@@ -215,12 +210,8 @@ export class AccountsService {
     'setPassword',
     'teams',
     'isOffline',
-    'isLoginDisabled',
-    'domSecurity',
-    'chokidar',
     'numberOfTeams',
     'numberOfReboot',
-    'videoOnly',
     'appConfiguration',
   ]);
 
@@ -268,23 +259,11 @@ export class AccountsService {
       await this.applyTeamUpdates(account, updateAccountDto.teams);
     }
 
-    if (updateAccountDto.status !== undefined) {
-      account.status = updateAccountDto.status;
-    }
     if (updateAccountDto.role !== undefined) {
       account.role = updateAccountDto.role;
     }
     if (updateAccountDto.isOffline !== undefined) {
       account.isOffline = updateAccountDto.isOffline;
-    }
-    if (updateAccountDto.isLoginDisabled !== undefined) {
-      account.isLoginDisabled = updateAccountDto.isLoginDisabled;
-    }
-    if (updateAccountDto.domSecurity !== undefined) {
-      account.domSecurity = updateAccountDto.domSecurity;
-    }
-    if (updateAccountDto.chokidar !== undefined) {
-      account.chokidar = updateAccountDto.chokidar;
     }
     if (updateAccountDto.country !== undefined) {
       account.country = updateAccountDto.country;
@@ -317,9 +296,6 @@ export class AccountsService {
     if (updateAccountDto.numberOfReboot !== undefined) {
       account.numberOfReboot = updateAccountDto.numberOfReboot;
     }
-    if (updateAccountDto.videoOnly !== undefined) {
-      account.videoOnly = updateAccountDto.videoOnly;
-    }
     if (updateAccountDto.appConfiguration !== undefined) {
       account.appConfiguration = updateAccountDto.appConfiguration;
     }
@@ -330,14 +306,21 @@ export class AccountsService {
     return this.toResponse(saved);
   }
 
-  /** Blocks the account from authenticating (check-phone, login, set-password). */
-  async disableLogin(id: string): Promise<void> {
-    const account = await this.getEntityOrFail(id);
-    if (account.isLoginDisabled) {
+  /**
+   * Blocks only the team bound to this device MAC (systemAddress) from
+   * authenticating. Other teams on the same account stay usable.
+   */
+  async disableTeamLoginByAddress(
+    accountId: string,
+    ipAddress: string,
+  ): Promise<void> {
+    const account = await this.getEntityOrFail(accountId);
+    const team = this.findTeamBySystemAddress(account, ipAddress);
+    if (!team || team.isLoginDisabled) {
       return;
     }
-    account.isLoginDisabled = true;
-    await this.accountsRepository.save(account);
+    team.isLoginDisabled = true;
+    await this.teamsRepository.save(team);
   }
 
   private assertCanEditAccount(
@@ -423,10 +406,6 @@ export class AccountsService {
       return { exists: false, needsPassword: false };
     }
 
-    if (account.isLoginDisabled) {
-      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
-    }
-
     const matched = this.findTeamBySystemAddress(account, ipAddress ?? null);
     if (matched) {
       if (matched.isLoginDisabled) {
@@ -462,10 +441,6 @@ export class AccountsService {
     const account = await this.findAccountByPhone(setPasswordDto.phoneNumber);
     if (!account) {
       throw new NotFoundException('User not found');
-    }
-
-    if (account.isLoginDisabled) {
-      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
     const resolvedIp = setPasswordDto.ipAddress ?? ipAddress ?? null;
@@ -509,10 +484,6 @@ export class AccountsService {
         resolvedIp,
       );
       throw new NotFoundException('User not found');
-    }
-
-    if (account.isLoginDisabled) {
-      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
     const team = await this.getOrCreateTeamForDevice(
@@ -761,12 +732,8 @@ export class AccountsService {
 
     await this.create({
       phoneNumber,
-      status: AccountStatus.ACTIVE,
       role: (role as AccountRole) || AccountRole.USER,
       isOffline: false,
-      isLoginDisabled: false,
-      domSecurity: true,
-      chokidar: true,
       country,
       sanghat: values.sanghat?.trim() || undefined,
       jilha: values.jilha?.trim() || undefined,
@@ -1039,7 +1006,10 @@ export class AccountsService {
     if (!ip) {
       return undefined;
     }
-    return account.teams.find((team) => team.systemAddress === ip);
+    const normalized = ip.trim().toLowerCase();
+    return account.teams.find(
+      (team) => team.systemAddress?.trim().toLowerCase() === normalized,
+    );
   }
 
   // Teams are created when a new device IP first calls set-password,

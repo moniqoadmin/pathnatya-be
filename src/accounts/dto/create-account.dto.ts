@@ -4,15 +4,13 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   MaxLength,
   Min,
-  MinLength,
 } from 'class-validator';
-import { AccountRole, AccountStatus } from '../entities/account.entity';
+import { AccountRole } from '../entities/account.entity';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
 
 export class CreateAccountDto {
@@ -49,15 +47,6 @@ export class CreateAccountDto {
   numberOfReboot?: number;
 
   @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description: 'When true, the client should play video only.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  videoOnly?: boolean;
-
-  @ApiPropertyOptional({
     example: 1,
     minimum: 1,
     default: 1,
@@ -68,26 +57,6 @@ export class CreateAccountDto {
   @IsInt()
   @Min(1)
   appConfiguration?: number;
-
-  @ApiPropertyOptional({
-    example: 'S3curePass!',
-    minLength: 6,
-    description:
-      'Optional. Ignored on create: team rows are not created until a device IP logs in. The first device should call set-password.',
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
-  password?: string;
-
-  @ApiPropertyOptional({
-    enum: AccountStatus,
-    default: AccountStatus.ACTIVE,
-  })
-  @IsOptional()
-  @IsEnum(AccountStatus)
-  status?: AccountStatus;
 
   @ApiPropertyOptional({
     enum: AccountRole,
@@ -107,35 +76,6 @@ export class CreateAccountDto {
   @IsOptional()
   @IsBoolean()
   isOffline?: boolean;
-
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description:
-      'When true, the account cannot authenticate: check-phone, login and set-password all fail.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  isLoginDisabled?: boolean;
-
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description: 'When true, the client should enforce DOM security checks.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  domSecurity?: boolean;
-
-  @ApiPropertyOptional({
-    example: false,
-    default: false,
-    description:
-      'When true, the client should enable chokidar filesystem watching.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  chokidar?: boolean;
 
   @ApiPropertyOptional({ example: 'India' })
   @IsOptional()
@@ -180,7 +120,7 @@ export class CreateAccountDto {
   sanchalakName?: string;
 
   @ApiPropertyOptional({
-    example: { source: 'mobile-app', referredBy: 'admin' },
+    example: { source: 'curl', kendraType: 'pathnatya' },
     description: 'Arbitrary JSON metadata.',
   })
   @IsOptional()

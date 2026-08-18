@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as ExcelJS from 'exceljs';
-import { Account, AccountRole, AccountStatus } from './entities/account.entity';
+import { Account, AccountRole } from './entities/account.entity';
 import {
   COUNTRY_CODE_TO_NAME,
   TEMPLATE_COLUMNS,
@@ -205,12 +205,8 @@ export class BulkAccountsUploadService {
 
     return this.accountsRepository.create({
       phoneNumber,
-      status: AccountStatus.ACTIVE,
       role: (role as AccountRole) || AccountRole.USER,
       isOffline: false,
-      isLoginDisabled: false,
-      domSecurity: true,
-      chokidar: true,
       country: country ?? null,
       sanghat: values.sanghat?.trim() || null,
       jilha: values.jilha?.trim() || null,
@@ -220,7 +216,6 @@ export class BulkAccountsUploadService {
       sanchalakName: values.sanchalakName?.trim() || null,
       numberOfTeams: numberOfTeams ?? null,
       numberOfReboot: 0,
-      videoOnly: false,
       appConfiguration: 1,
       metadata: kendraType ? { kendraType } : null,
     });
