@@ -16,8 +16,6 @@ import { PayloadCryptoModule } from './crypto/payload-crypto.module';
 import { LogsModule } from './logs/logs.module';
 import { VideosModule } from './videos/videos.module';
 import { IssuesModule } from './issues/issues.module';
-import { RedisModule } from './redis/redis.module';
-import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { ImportsModule } from './imports/imports.module';
 
 function loadTestKeyMatches(
@@ -35,15 +33,12 @@ function loadTestKeyMatches(
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    RedisModule,
     PayloadCryptoModule,
     ThrottlerModule.forRootAsync({
-      imports: [RedisModule],
-      inject: [ConfigService, RedisThrottlerStorage],
-      useFactory: (config: ConfigService, storage: RedisThrottlerStorage) => {
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
         const loadTestKey = config.get<string>('LOAD_TEST_KEY');
         return {
-          storage,
           skipIf: (context: ExecutionContext) => {
             const req = context.switchToHttp().getRequest<{
               headers: Record<string, string | string[] | undefined>;
@@ -72,10 +67,9 @@ function loadTestKeyMatches(
       useFactory: (config: ConfigService) => buildDatabaseConfig(config),
     }),
     ConfigurationStorageModule,
-    CacheModule.registerAsync({
+    CacheModule.register({
       isGlobal: true,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => buildCacheConfig(config),
+      ...buildCacheConfig(),
     }),
     HealthModule,
     AccountsModule,

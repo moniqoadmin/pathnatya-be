@@ -1,30 +1,29 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
-import { RedisService } from '../redis/redis.service';
+
+type Counter = { count: number; expiresAt: number };
+type Lock = { expiresAt: number };
 
 @Injectable()
 export class LoginProtectionService {
   private readonly logger = new Logger(LoginProtectionService.name);
+  private readonly failures = new Map<string, Counter>();
+  private readonly blocked = new Map<string, Lock>();
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly redis: RedisService,
-  ) {}
+  constructor(private readonly config: ConfigService) {}
 
   async assertAllowed(
     phoneNumber: string,
     ipAddress: string | null,
   ): Promise<void> {
-    if (!this.redis.isConfigured()) return;
     try {
-      const client = await this.redis.ensureConnected();
       const keys = [
         this.phoneKey(phoneNumber),
         ipAddress && this.ipKey(ipAddress),
       ].filter((value): value is string => !!value);
       for (const key of keys) {
-        const ttl = await client.ttl(`${key}:blocked`);
+        const ttl = this.lockTtlSeconds(key);
         if (ttl > 0) this.throwLocked(ttl);
       }
     } catch (error) {
@@ -39,9 +38,7 @@ export class LoginProtectionService {
     phoneNumber: string,
     ipAddress: string | null,
   ): Promise<void> {
-    if (!this.redis.isConfigured()) return;
     try {
-      const client = await this.redis.ensureConnected();
       const windowSeconds = this.number('LOGIN_FAILURE_WINDOW_SECONDS', 900);
       const lockSeconds = this.number('LOGIN_LOCK_SECONDS', 900);
       const checks: Array<[string, number]> = [
@@ -57,12 +54,16 @@ export class LoginProtectionService {
         ]);
       }
 
+      const now = Date.now();
       for (const [key, limit] of checks) {
-        const failures = await client.incr(`${key}:failures`);
-        if (failures === 1)
-          await client.expire(`${key}:failures`, windowSeconds);
-        if (failures >= limit) {
-          await client.set(`${key}:blocked`, '1', 'EX', lockSeconds);
+        let counter = this.failures.get(key);
+        if (!counter || counter.expiresAt <= now) {
+          counter = { count: 0, expiresAt: now + windowSeconds * 1000 };
+        }
+        counter.count += 1;
+        this.failures.set(key, counter);
+        if (counter.count >= limit) {
+          this.blocked.set(key, { expiresAt: now + lockSeconds * 1000 });
         }
       }
     } catch (error) {
@@ -73,16 +74,26 @@ export class LoginProtectionService {
   }
 
   async clear(phoneNumber: string): Promise<void> {
-    if (!this.redis.isConfigured()) return;
     try {
-      const client = await this.redis.ensureConnected();
       const key = this.phoneKey(phoneNumber);
-      await client.del(`${key}:failures`, `${key}:blocked`);
+      this.failures.delete(key);
+      this.blocked.delete(key);
     } catch (error) {
       this.logger.warn(
         `Could not clear login failures: ${(error as Error).message}`,
       );
     }
+  }
+
+  private lockTtlSeconds(key: string): number {
+    const lock = this.blocked.get(key);
+    if (!lock) return 0;
+    const remaining = Math.ceil((lock.expiresAt - Date.now()) / 1000);
+    if (remaining <= 0) {
+      this.blocked.delete(key);
+      return 0;
+    }
+    return remaining;
   }
 
   private throwLocked(retryAfterSeconds: number): never {

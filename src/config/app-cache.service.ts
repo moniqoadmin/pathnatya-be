@@ -4,7 +4,7 @@ import type { Cache } from 'cache-manager';
 
 /**
  * Thin cache wrapper that never blocks the request path.
- * Redis outages / misconfigured REDIS_URL degrade to cache misses.
+ * Cache errors degrade to misses so reads still hit the database.
  */
 @Injectable()
 export class AppCacheService {
