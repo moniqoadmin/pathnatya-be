@@ -37,7 +37,6 @@ import { JweService } from './jwe.service';
 import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorator';
 import { AccountRole } from './entities/account.entity';
 
-/** Stricter per-IP limit for unauthenticated / credential endpoints. */
 const AuthThrottle = () => Throttle({ default: { limit: 10, ttl: 60_000 } });
 
 @ApiTags('accounts')
@@ -86,10 +85,10 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Check if a phone number has an account. Returns { exists, needsPassword } so the client can decide whether to call set-password.',
+      'Check phone/device for the relevant team and return that team password status.',
   })
   checkPhone(@Body() checkPhoneDto: CheckPhoneDto) {
-    return this.accountsService.checkPhone(checkPhoneDto.phoneNumber);
+    return this.accountsService.checkPhone(checkPhoneDto);
   }
 
   @Public()
@@ -97,8 +96,7 @@ export class AccountsController {
   @Post('set-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary:
-      'Set or reset an account password by phone number. Sets setPassword to false.',
+    summary: 'Set only the resolved team password and device binding.',
   })
   setPassword(@Body() setPasswordDto: SetPasswordDto, @Ip() ipAddress: string) {
     return this.accountsService.setPassword(
@@ -119,7 +117,7 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. Returns account details and a JWE token, or "User not found" / "Password wrong".',
+      'Login using the password/device binding for the resolved team_access row.',
   })
   login(@Body() loginDto: LoginDto, @Ip() ipAddress: string) {
     return this.accountsService.login(
@@ -129,9 +127,7 @@ export class AccountsController {
   }
 
   @Get('login-token')
-  @ApiOperation({
-    summary: 'Return the five login success keys.',
-  })
+  @ApiOperation({ summary: 'Return the five login success keys.' })
   getLoginToken() {
     return { keys: this.jweService.getLoginKeys() };
   }
@@ -145,7 +141,7 @@ export class AccountsController {
   @Get()
   @ApiOperation({
     summary:
-      'List accounts (paginated). Optional admin query flag. Admins see Users in their sanghat only. SuperAdmins see all accounts and may filter by role. Search matches phone number or kendra name.',
+      'List accounts (paginated). Admins see Users in their sanghat. SuperAdmins see all accounts and may filter by role.',
   })
   findAll(@Req() req: Request, @Query() query: ListAccountsQueryDto) {
     return this.accountsService.findAll(req.user!.sub, query);
@@ -160,7 +156,7 @@ export class AccountsController {
   @Patch(':id')
   @ApiOperation({
     summary:
-      'Update an account from the account list. Admins may only edit setPassword (false → true), isOffline, isLoginDisabled, domSecurity, chokidar, numberOfTeams, numberOfReboot, videoOnly, and appConfiguration, and only for Users in their sanghat. SuperAdmin and Developer may edit all mutable fields. phoneNumber is immutable.',
+      'Update account profile fields. Team authentication fields are stored in team_access.',
   })
   update(
     @Req() req: Request,
