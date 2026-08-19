@@ -6,7 +6,7 @@ export class LoginQueryDto {
   @ApiPropertyOptional({
     example: true,
     description:
-      'When true, the issued session token expires in 2 hours (admin UI). Otherwise the token is valid for 5 days.',
+      'When true, the issued session token expires in 2 hours (admin UI) and device ipAddress matching is skipped. Otherwise the token is valid for 5 days.',
   })
   @IsOptional()
   @Transform(({ value }) => {

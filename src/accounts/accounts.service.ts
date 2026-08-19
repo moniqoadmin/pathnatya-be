@@ -479,11 +479,19 @@ export class AccountsService {
   async checkPhone(
     phoneNumber: string,
     ipAddress?: string | null,
+    admin = false,
   ): Promise<CheckPhoneResult> {
     const account = await this.findAccountByPhone(phoneNumber);
 
     if (!account) {
       return { exists: false, needsPassword: false };
+    }
+
+    if (admin) {
+      const hasPassword = account.teams.some(
+        (team) => team.passwordHash && !team.setPassword,
+      );
+      return { exists: true, needsPassword: !hasPassword };
     }
 
     const matched = this.findTeamBySystemAddress(account, ipAddress ?? null);
@@ -573,35 +581,11 @@ export class AccountsService {
       throw new NotFoundException('User not found');
     }
 
-    const team = await this.getOrCreateTeamForDevice(
-      account,
-      resolvedIp,
-      'login',
-    );
-    if (team.isLoginDisabled) {
-      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
-    }
-
-    if (team.setPassword || !team.passwordHash) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const passwordMatches = await this.passwordVerification.verify(
-      loginDto.password,
-      team.passwordHash,
-    );
-    if (!passwordMatches) {
-      await this.loginProtection.recordFailure(
-        loginDto.phoneNumber,
-        resolvedIp,
-      );
-      throw new UnauthorizedException(
-        'Invalid credentials. If you have forgotten your password, please contact your Jababdar Bhai.',
-      );
-    }
+    const team = admin
+      ? await this.authenticateAdminTeam(account, loginDto, resolvedIp)
+      : await this.authenticateDeviceTeam(account, loginDto, resolvedIp);
 
     await this.loginProtection.clear(loginDto.phoneNumber);
-    this.bindTeamOnLogin(team, resolvedIp);
 
     team.lastLoginTime = new Date();
     await this.teamsRepository.save(team);
@@ -1111,6 +1095,67 @@ export class AccountsService {
     if (persisted.length > 0) {
       await this.teamsRepository.remove(persisted);
     }
+  }
+
+  private async authenticateDeviceTeam(
+    account: Account,
+    loginDto: LoginDto,
+    resolvedIp: string | null,
+  ): Promise<Team> {
+    const team = await this.getOrCreateTeamForDevice(
+      account,
+      resolvedIp,
+      'login',
+    );
+    if (team.isLoginDisabled) {
+      throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
+    }
+
+    if (team.setPassword || !team.passwordHash) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordMatches = await this.passwordVerification.verify(
+      loginDto.password,
+      team.passwordHash,
+    );
+    if (!passwordMatches) {
+      await this.loginProtection.recordFailure(
+        loginDto.phoneNumber,
+        resolvedIp,
+      );
+      throw new UnauthorizedException(
+        'Invalid credentials. If you have forgotten your password, please contact your Jababdar Bhai.',
+      );
+    }
+
+    this.bindTeamOnLogin(team, resolvedIp);
+    return team;
+  }
+
+  /** Admin UI: match any team by password, ignore device MAC / team limits. */
+  private async authenticateAdminTeam(
+    account: Account,
+    loginDto: LoginDto,
+    resolvedIp: string | null,
+  ): Promise<Team> {
+    const candidates = account.teams.filter(
+      (team) => team.passwordHash && !team.setPassword,
+    );
+    for (const team of candidates) {
+      const passwordMatches = await this.passwordVerification.verify(
+        loginDto.password,
+        team.passwordHash!,
+      );
+      if (passwordMatches) {
+        return team;
+      }
+    }
+
+    await this.loginProtection.recordFailure(loginDto.phoneNumber, resolvedIp);
+    throw new UnauthorizedException(
+      'Invalid credentials. If you have forgotten your password, please contact your Jababdar Bhai.',
+    );
   }
 
   private findTeamBySystemAddress(

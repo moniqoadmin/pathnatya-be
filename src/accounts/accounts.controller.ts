@@ -29,6 +29,7 @@ import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { LoginQueryDto } from './dto/login-query.dto';
+import { OptionalAdminQueryDto } from './dto/optional-admin-query.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { CheckPhoneDto } from './dto/check-phone.dto';
 import { JweAuthGuard } from './guards/jwe-auth.guard';
@@ -87,12 +88,17 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword } from that team setPassword flag. Errors if the matching team has isLoginDisabled.',
+      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword } from that team setPassword flag. Errors if the matching team has isLoginDisabled. When admin=true, ipAddress matching and device-team limits are skipped.',
   })
-  checkPhone(@Body() checkPhoneDto: CheckPhoneDto, @Ip() ipAddress: string) {
+  checkPhone(
+    @Body() checkPhoneDto: CheckPhoneDto,
+    @Query() query: OptionalAdminQueryDto,
+    @Ip() ipAddress: string,
+  ) {
     return this.accountsService.checkPhone(
       checkPhoneDto.phoneNumber,
       checkPhoneDto.ipAddress ?? ipAddress,
+      query.admin === true,
     );
   }
 
@@ -123,7 +129,7 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token valid for 5 days (2 hours when admin=true).',
+      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token valid for 5 days (2 hours when admin=true). When admin=true, ipAddress matching, team binding, and device-team limits are skipped.',
   })
   login(
     @Body() loginDto: LoginDto,
