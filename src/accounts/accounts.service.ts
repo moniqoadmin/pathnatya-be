@@ -481,6 +481,7 @@ export class AccountsService {
   async login(
     loginDto: LoginDto,
     ipAddress?: string | null,
+    admin = false,
   ): Promise<LoginResponse> {
     const resolvedIp = loginDto.ipAddress ?? ipAddress ?? null;
     await this.loginProtection.assertAllowed(loginDto.phoneNumber, resolvedIp);
@@ -532,7 +533,7 @@ export class AccountsService {
     return {
       account: accountWithoutTeams,
       team: this.toTeamResponse(team),
-      token: await this.jweService.encryptAccountToken(account.id),
+      token: await this.jweService.encryptAccountToken(account.id, admin),
     };
   }
 

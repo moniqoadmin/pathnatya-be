@@ -6,6 +6,11 @@ export interface JweTokenPayload extends JWTPayload {
   sub: string;
 }
 
+/** Default Electron-app session lifetime. */
+export const SESSION_TTL_DEFAULT = '5d';
+/** Admin-UI session lifetime (`?admin=true` on login). */
+export const SESSION_TTL_ADMIN = '2h';
+
 const ACCOUNT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -18,11 +23,14 @@ export class JweService {
     return createHash('sha256').update(secret).digest();
   }
 
-  async encryptAccountToken(accountId: string): Promise<string> {
+  async encryptAccountToken(
+    accountId: string,
+    admin = false,
+  ): Promise<string> {
     return new EncryptJWT({ sub: accountId })
       .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
       .setIssuedAt()
-      .setExpirationTime('1h')
+      .setExpirationTime(admin ? SESSION_TTL_ADMIN : SESSION_TTL_DEFAULT)
       .encrypt(this.getSecretKey());
   }
 

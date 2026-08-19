@@ -28,6 +28,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
+import { LoginQueryDto } from './dto/login-query.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { CheckPhoneDto } from './dto/check-phone.dto';
 import { JweAuthGuard } from './guards/jwe-auth.guard';
@@ -122,12 +123,17 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token.',
+      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token valid for 5 days (2 hours when admin=true).',
   })
-  login(@Body() loginDto: LoginDto, @Ip() ipAddress: string) {
+  login(
+    @Body() loginDto: LoginDto,
+    @Query() query: LoginQueryDto,
+    @Ip() ipAddress: string,
+  ) {
     return this.accountsService.login(
       loginDto,
       loginDto.ipAddress ?? ipAddress,
+      query.admin === true,
     );
   }
 
