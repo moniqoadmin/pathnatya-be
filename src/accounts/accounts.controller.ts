@@ -95,7 +95,7 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword } from that team setPassword flag. Errors if the matching team has isLoginDisabled. When admin=true, ipAddress matching and device-team limits are skipped.',
+      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword, role } from that account. Errors if the matching team has isLoginDisabled. When admin=true, ipAddress matching and device-team limits are skipped.',
   })
   checkPhone(
     @Body() checkPhoneDto: CheckPhoneDto,

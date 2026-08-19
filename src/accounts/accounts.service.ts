@@ -73,6 +73,7 @@ export interface CheckPhoneResult {
   // True when the account exists but has not set a password yet,
   // i.e. the client should proceed to call set-password.
   needsPassword: boolean;
+  role?: AccountRole;
 }
 
 export interface BulkUploadError {
@@ -479,7 +480,7 @@ export class AccountsService {
       const hasPassword = account.teams.some(
         (team) => team.passwordHash && !team.setPassword,
       );
-      return { exists: true, needsPassword: !hasPassword };
+      return { exists: true, needsPassword: !hasPassword, role: account.role };
     }
 
     const matched = this.findTeamBySystemAddress(account, ipAddress ?? null);
@@ -490,6 +491,7 @@ export class AccountsService {
       return {
         exists: true,
         needsPassword: matched.setPassword || !matched.passwordHash,
+        role: account.role,
       };
     }
 
@@ -500,6 +502,7 @@ export class AccountsService {
       return {
         exists: true,
         needsPassword: unbound.setPassword || !unbound.passwordHash,
+        role: account.role,
       };
     }
 
@@ -507,7 +510,7 @@ export class AccountsService {
       throw new ForbiddenException(SYSTEM_ADDRESS_LIMIT_MESSAGE);
     }
 
-    return { exists: true, needsPassword: true };
+    return { exists: true, needsPassword: true, role: account.role };
   }
 
   async setPassword(
