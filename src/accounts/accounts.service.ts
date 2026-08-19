@@ -13,7 +13,11 @@ import * as ExcelJS from 'exceljs';
 import { Account, AccountRole } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
-import { authorizeCreateAccount } from './account-authorization';
+import {
+  authorizeCreateAccount,
+  authorizeDeleteAccount,
+  authorizeViewAccount,
+} from './account-authorization';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { PatchTeamDto, UpdateTeamDto } from './dto/update-team.dto';
@@ -216,13 +220,23 @@ export class AccountsService {
     return this.toResponse(account);
   }
 
+  async findOneForCaller(
+    callerId: string,
+    id: string,
+  ): Promise<AccountResponse> {
+    const caller = await this.getEntityOrFail(callerId);
+    const account = await this.getEntityOrFail(id);
+    authorizeViewAccount(caller, account);
+    return this.toResponse(account);
+  }
+
   async findTeams(
     callerId: string,
     accountId: string,
   ): Promise<TeamsResponse> {
     const caller = await this.getEntityOrFail(callerId);
     const account = await this.getEntityOrFail(accountId);
-    this.assertCanViewAccount(caller, account);
+    authorizeViewAccount(caller, account);
     return this.toTeamsResponse(account.teams);
   }
 
@@ -375,41 +389,6 @@ export class AccountsService {
     }
     team.isLoginDisabled = true;
     await this.teamsRepository.save(team);
-  }
-
-  private assertCanViewAccount(caller: Account, account: Account): void {
-    if (caller.id === account.id) {
-      return;
-    }
-
-    if (
-      caller.role === AccountRole.SUPER_ADMIN ||
-      caller.role === AccountRole.DEVELOPER
-    ) {
-      return;
-    }
-
-    if (caller.role === AccountRole.ADMIN) {
-      if (!caller.sanghat) {
-        throw new ForbiddenException('Admin account has no sanghat assigned');
-      }
-      if (account.role !== AccountRole.USER) {
-        throw new ForbiddenException('Admins can only view User accounts');
-      }
-      if (
-        !account.sanghat ||
-        account.sanghat.toLowerCase() !== caller.sanghat.toLowerCase()
-      ) {
-        throw new ForbiddenException(
-          'Admins can only view accounts in their sanghat',
-        );
-      }
-      return;
-    }
-
-    throw new ForbiddenException(
-      'You can only view teams for your own account',
-    );
   }
 
   private assertCanEditAccount(
@@ -566,11 +545,11 @@ export class AccountsService {
     };
   }
 
-  async remove(id: string): Promise<void> {
-    const result = await this.accountsRepository.delete(id);
-    if (!result.affected) {
-      throw new NotFoundException(`Account with id ${id} not found`);
-    }
+  async remove(callerId: string, id: string): Promise<void> {
+    const caller = await this.getEntityOrFail(callerId);
+    const account = await this.getEntityOrFail(id);
+    authorizeDeleteAccount(caller, account);
+    await this.accountsRepository.delete(id);
   }
 
   async login(

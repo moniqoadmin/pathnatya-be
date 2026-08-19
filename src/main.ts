@@ -8,8 +8,6 @@ import { PayloadCryptoService } from './crypto/payload-crypto.service';
 import { PayloadEncryptionExceptionFilter } from './crypto/payload-encryption.exception-filter';
 
 async function bootstrap() {
-  // Disable default body parser so we can raise the limit for large segment
-  // payloads (remoteData base64 can be tens of MB).
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // Security headers (CSP, HSTS, COEP, COOP, + helmet defaults). Apply early.

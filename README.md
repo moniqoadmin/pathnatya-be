@@ -1,6 +1,6 @@
 # Pathnatya Backend (POC)
 
-NestJS API for the Pathnatya Electron desktop app. It manages accounts and device teams, login, encrypted video metadata, issue tracking, event logs, bulk Excel imports, and per-account app configuration. PostgreSQL is the source of truth; JSON request and response bodies can be wrapped in JWE for the Electron client.
+NestJS API for the Pathnatya Electron desktop app. It manages accounts and device teams, login, issue tracking, event logs, bulk Excel imports, and per-account app configuration. PostgreSQL is the source of truth; JSON request and response bodies can be wrapped in JWE for the Electron client.
 
 ## Stack
 
@@ -12,7 +12,6 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - [Helmet](https://helmetjs.github.io/), CORS allowlist, `@nestjs/throttler`
 - [jose](https://github.com/panva/jose) (JWE auth tokens and payload encryption)
 - [ExcelJS](https://github.com/exceljs/exceljs) (account import templates and uploads)
-- In-memory cache (`cache-manager`) for video records
 
 ## Features
 
@@ -43,6 +42,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - **Login protection**: lock after too many failures per phone and per IP (defaults: 5 phone / 100 IP failures in 15 minutes → 15-minute lock).
 - **Password-hash concurrency cap** so scrypt cannot saturate the process (`LOGIN_HASH_CONCURRENCY`, queue limit, `503` + retry-after when busy).
 - Paginated account list with search (phone or kendra). Admins see only `User` accounts in their sanghat; SuperAdmin / Developer see all and may filter by role.
+- Role-scoped reads and deletes: Users may GET their own account. Admins may GET or DELETE Users in their sanghat. SuperAdmin / Developer may GET or DELETE any account. A token is rejected if the caller account no longer exists.
 - Role-scoped updates: Admins may only toggle a subset of fields (password reset, login disable, offline, team count, reboot count, logout button, app configuration) for Users in their sanghat. SuperAdmin / Developer may edit all mutable fields.
 - Account flags consumed by the Electron app: `isOffline`, `logoutButton`, `numberOfReboot`, `appConfiguration`.
 - `GET /api/accounts/login-token` returns six `LOGIN_SUCCESS_KEY_*` values used after a successful login.
@@ -56,14 +56,6 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - Per-row errors stored and listed with pagination. Duplicate / invalid phones are skipped, not fatal.
 - Template columns include country, sanghat, jilha, taluka, group, kendra type/name, sanchalak, country code (`91` / `44` / `1`), mobile number, expected team count, and role.
 - Old jobs are pruned after `IMPORT_JOB_RETENTION_DAYS` (default 7).
-
-### Videos and segments
-
-- Store encrypted-video catalog records (`videoId`, source, sizes, duration, algorithm, header, key derivation, local dir).
-- Create segments one-at-a-time, as an array, or as `{ videoId, segments }`. Duplicate `(videoId, segmentNumber)` pairs are rejected.
-- Segment payload includes language, timings, split ratios, hashes, part orders, and base64 `remoteData`.
-- List/get videos and get a segment by `videoId` + `segmentNumber`.
-- **1-day in-memory cache** for video list and individual video / segment reads.
 
 ### Issues
 
@@ -82,8 +74,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 ### Configuration
 
-- **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id.
-- **Server API URLs**: two slots (`id` 1 or 2) for the client to discover backends. These routes skip auth and payload encryption.
+- **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id. Reads are authenticated; writes are SuperAdmin / Developer only.
 
 ### Health and ops
 
@@ -173,7 +164,6 @@ Almost every route needs:
 - `POST /api/accounts/check-phone`
 - `POST /api/accounts/set-password`
 - `POST /api/accounts/login`
-- `GET` / `POST /api/server-api-urls` — no app key
 - `GET /api/health`, `GET /api/health/time`, `GET /api` — no app key
 - `POST /api/crypto/encrypt`, `POST /api/crypto/decrypt` — app key only
 
@@ -181,9 +171,9 @@ Almost every route needs:
 
 | Role | Typical access |
 | --- | --- |
-| `User` | Own teams, own issues/comments, own logs, videos, config |
-| `Admin` | Users in the same sanghat: create, list, edit a limited field set, import accounts, report issues for those users |
-| `SuperAdmin` / `Developer` | All accounts, full edits, import, issue inbox, resolve issues |
+| `User` | Own account, own teams, own issues/comments, own logs, read config |
+| `Admin` | Users in the same sanghat: create, list, get, delete, edit a limited field set, import accounts, report issues for those users |
+| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, import, issue inbox, resolve issues, write app configurations |
 
 ## Payload encryption
 
@@ -225,25 +215,15 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | GET | `/accounts/login-token` | token | Six login success keys |
 | GET | `/accounts/roles` | token | Role names |
 | GET | `/accounts` | token | Paginated list (`page`, `limit`, `search`, `role`, `admin`) |
-| GET | `/accounts/:id` | token | Get one account |
+| GET | `/accounts/:id` | token | Get one account (own, or role-scoped) |
 | PATCH | `/accounts/:id` | token | Update account (role-scoped) |
-| DELETE | `/accounts/:id` | token | Delete account |
+| DELETE | `/accounts/:id` | token | Delete account (Admin / SuperAdmin / Developer) |
 | GET | `/accounts/:accountId/teams` | token | List teams |
 | PATCH | `/accounts/:accountId/teams/:teamId` | token | Update one team |
 | GET | `/accounts/bulk/template` | token | Download Excel template (binary, not encrypted) |
 | POST | `/accounts/bulk/upload` | token | Queue Excel import (`202`, `{ jobId, status }`) |
 | GET | `/accounts/bulk/upload/:jobId` | token | Import job status |
 | GET | `/accounts/bulk/upload/:jobId/errors` | token | Paginated row errors |
-
-### Videos
-
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| POST | `/videos` | Create a video record |
-| GET | `/videos` | List videos (cached) |
-| GET | `/videos/:videoId` | Get one video |
-| POST | `/video-segments` | Create one, many, or bulk segments |
-| GET | `/video-segments/:videoId/:segmentNumber` | Get one segment |
 
 ### Issues
 
@@ -270,9 +250,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/app-configurations` | token | List configurations |
-| POST | `/app-configurations` | token | Upsert by numeric `id` |
-| GET | `/server-api-urls` | none | List backend URLs (ids `1` and `2`) |
-| POST | `/server-api-urls` | none | Upsert `{ id, link }` |
+| POST | `/app-configurations` | token | Upsert by numeric `id` (SuperAdmin / Developer) |
 
 ## Project structure
 
@@ -282,10 +260,10 @@ src/
   app.module.ts                   # Config, TypeORM, throttle, cache, feature modules
   accounts/                       # Accounts, teams, login, JWE, app-key guard
   imports/                        # Excel upload queue, jobs, row errors
-  videos/                         # Videos and encrypted segments
+  videos/                         # Video catalog entities (no HTTP API)
   issues/                         # Issue reporting and resolution
   logs/                           # Client event logs
-  config/                         # App configurations, server API URLs, DB/cache
+  config/                         # App configurations, DB/cache
   crypto/                         # Payload JWE interceptor, encrypt/decrypt helpers
   health/                         # Liveness + DB ping + server time
 ```

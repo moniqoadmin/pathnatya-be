@@ -9,6 +9,7 @@ import { TeamsController } from './teams.controller';
 import { JweService } from './jwe.service';
 import { JweAuthGuard } from './guards/jwe-auth.guard';
 import { AppKeyGuard } from './guards/app-key.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
 
@@ -21,6 +22,7 @@ import { PasswordVerificationService } from './password-verification.service';
     JweService,
     JweAuthGuard,
     AppKeyGuard,
+    RolesGuard,
     LoginProtectionService,
     PasswordVerificationService,
   ],
@@ -30,6 +32,7 @@ import { PasswordVerificationService } from './password-verification.service';
     JweService,
     JweAuthGuard,
     AppKeyGuard,
+    RolesGuard,
   ],
 })
 export class AccountsModule {}

@@ -171,9 +171,12 @@ export class AccountsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get an account by id' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.accountsService.findOne(id);
+  @ApiOperation({
+    summary:
+      'Get an account by id. Users may read their own account. Admins may read Users in their sanghat. SuperAdmin and Developer may read any account.',
+  })
+  findOne(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    return this.accountsService.findOneForCaller(req.user!.sub, id);
   }
 
   @Patch(':id')
@@ -191,8 +194,11 @@ export class AccountsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete an account' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.accountsService.remove(id);
+  @ApiOperation({
+    summary:
+      'Delete an account. Admin, SuperAdmin, and Developer only. Admins may only delete User accounts in their sanghat.',
+  })
+  remove(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    return this.accountsService.remove(req.user!.sub, id);
   }
 }

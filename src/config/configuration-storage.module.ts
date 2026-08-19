@@ -4,16 +4,13 @@ import { AccountsModule } from '../accounts/accounts.module';
 import { AppConfigurationsController } from './app-configurations.controller';
 import { AppConfigurationsService } from './app-configurations.service';
 import { AppConfiguration } from './entities/app-configuration.entity';
-import { ServerApiUrl } from './entities/server-api-url.entity';
-import { ServerApiUrlsController } from './server-api-urls.controller';
-import { ServerApiUrlsService } from './server-api-urls.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AppConfiguration, ServerApiUrl]),
+    TypeOrmModule.forFeature([AppConfiguration]),
     AccountsModule,
   ],
-  controllers: [AppConfigurationsController, ServerApiUrlsController],
-  providers: [AppConfigurationsService, ServerApiUrlsService],
+  controllers: [AppConfigurationsController],
+  providers: [AppConfigurationsService],
 })
 export class ConfigurationStorageModule {}
