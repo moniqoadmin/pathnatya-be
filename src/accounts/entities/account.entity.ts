@@ -69,6 +69,10 @@ export class Account {
   @Column({ name: 'number_of_reboot', type: 'int', default: 0 })
   numberOfReboot: number;
 
+  // When true, the Electron app shows the logout button in the top bar.
+  @Column({ name: 'logout_button', type: 'boolean', default: false })
+  logoutButton: boolean;
+
   // ID of the app_configurations row assigned to this account.
   @Column({ name: 'app_configuration', type: 'int', default: 1 })
   appConfiguration: number;

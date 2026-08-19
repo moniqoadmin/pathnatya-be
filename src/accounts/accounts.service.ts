@@ -127,6 +127,7 @@ export class AccountsService {
       metadata: createAccountDto.metadata ?? null,
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
       numberOfReboot: createAccountDto.numberOfReboot ?? 0,
+      logoutButton: createAccountDto.logoutButton ?? false,
       appConfiguration: createAccountDto.appConfiguration ?? 1,
     });
     const saved = await this.accountsRepository.save(account);
@@ -217,6 +218,7 @@ export class AccountsService {
     'isOffline',
     'numberOfTeams',
     'numberOfReboot',
+    'logoutButton',
     'appConfiguration',
   ]);
 
@@ -300,6 +302,9 @@ export class AccountsService {
     }
     if (updateAccountDto.numberOfReboot !== undefined) {
       account.numberOfReboot = updateAccountDto.numberOfReboot;
+    }
+    if (updateAccountDto.logoutButton !== undefined) {
+      account.logoutButton = updateAccountDto.logoutButton;
     }
     if (updateAccountDto.appConfiguration !== undefined) {
       account.appConfiguration = updateAccountDto.appConfiguration;

@@ -59,6 +59,15 @@ export class CreateAccountDto {
   appConfiguration?: number;
 
   @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description: 'When true, the Electron app shows the logout button.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  logoutButton?: boolean;
+
+  @ApiPropertyOptional({
     enum: AccountRole,
     default: AccountRole.USER,
     description:

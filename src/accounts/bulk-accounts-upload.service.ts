@@ -216,6 +216,7 @@ export class BulkAccountsUploadService {
       sanchalakName: values.sanchalakName?.trim() || null,
       numberOfTeams: numberOfTeams ?? null,
       numberOfReboot: 0,
+      logoutButton: false,
       appConfiguration: 1,
       metadata: kendraType ? { kendraType } : null,
     });
