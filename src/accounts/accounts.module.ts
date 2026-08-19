@@ -27,6 +27,7 @@ import { PasswordVerificationService } from './password-verification.service';
     PasswordVerificationService,
   ],
   exports: [
+    TypeOrmModule,
     AccountsService,
     BulkAccountsUploadService,
     JweService,

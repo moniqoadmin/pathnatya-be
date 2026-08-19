@@ -34,7 +34,9 @@ import { SetPasswordDto } from './dto/set-password.dto';
 import { CheckPhoneDto } from './dto/check-phone.dto';
 import { JweAuthGuard } from './guards/jwe-auth.guard';
 import { AppKeyGuard } from './guards/app-key.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { Public } from './decorators/public.decorator';
+import { Roles } from './decorators/roles.decorator';
 import { JweService } from './jwe.service';
 import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorator';
 import { AccountRole } from './entities/account.entity';
@@ -49,7 +51,7 @@ const AuthThrottle = () => Throttle({ default: { limit: 30, ttl: 60_000 } });
   required: true,
 })
 @ApiBearerAuth()
-@UseGuards(AppKeyGuard, JweAuthGuard)
+@UseGuards(AppKeyGuard, JweAuthGuard, RolesGuard)
 @Controller('accounts')
 export class AccountsController {
   constructor(
@@ -69,11 +71,12 @@ export class AccountsController {
     );
   }
 
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
   @SkipPayloadEncryption()
   @Get('bulk/template')
   @ApiOperation({
     summary:
-      'Download an .xlsx template (headers only) to fill in and upload back.',
+      'Download an .xlsx template (headers only) to fill in and upload back. SuperAdmin and Developer only.',
   })
   async downloadTemplate(@Res() res: Response) {
     const buffer = await this.accountsService.generateTemplate();

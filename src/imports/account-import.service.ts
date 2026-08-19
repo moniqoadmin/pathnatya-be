@@ -57,20 +57,19 @@ export class AccountImportService {
     });
   }
 
-  async findOne(id: string, accountId: string, role: AccountRole) {
+  async findOne(id: string, role: AccountRole) {
     const job = await this.jobs.findOne({ where: { id } });
     if (!job) throw new NotFoundException('Import job not found');
-    this.assertCanRead(job, accountId, role);
+    this.assertCanRead(role);
     return job;
   }
 
   async findErrors(
     id: string,
-    accountId: string,
     role: AccountRole,
     query: ListImportErrorsQueryDto,
   ) {
-    await this.findOne(id, accountId, role);
+    await this.findOne(id, role);
     const [data, total] = await this.errors.findAndCount({
       where: { jobId: id },
       order: { rowNumber: 'ASC' },
@@ -192,15 +191,10 @@ export class AccountImportService {
     }
   }
 
-  private assertCanRead(
-    job: AccountImportJob,
-    accountId: string,
-    role: AccountRole,
-  ): void {
+  private assertCanRead(role: AccountRole): void {
     if (
       role !== AccountRole.SUPER_ADMIN &&
-      role !== AccountRole.DEVELOPER &&
-      job.requestedBy !== accountId
+      role !== AccountRole.DEVELOPER
     ) {
       throw new ForbiddenException('You cannot access this import job');
     }

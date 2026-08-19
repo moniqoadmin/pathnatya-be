@@ -50,8 +50,8 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 ### Bulk account import
 
-- Download an `.xlsx` template (`GET /api/accounts/bulk/template`).
-- Upload a filled sheet (`POST /api/accounts/bulk/upload`, multipart field `file`, max 20 MB). Admin, SuperAdmin, and Developer only.
+- Download an `.xlsx` template (`GET /api/accounts/bulk/template`). SuperAdmin and Developer only.
+- Upload a filled sheet (`POST /api/accounts/bulk/upload`, multipart field `file`, max 20 MB). SuperAdmin and Developer only. Role and sanghat in the sheet are applied as given.
 - In-process queue (`IMPORT_QUEUE_CONCURRENCY`) with job status: `queued` → `processing` → `completed` / `failed`.
 - Per-row errors stored and listed with pagination. Duplicate / invalid phones are skipped, not fatal.
 - Template columns include country, sanghat, jilha, taluka, group, kendra type/name, sanchalak, country code (`91` / `44` / `1`), mobile number, expected team count, and role.
@@ -172,8 +172,8 @@ Almost every route needs:
 | Role | Typical access |
 | --- | --- |
 | `User` | Own account, own teams, own issues/comments, own logs, read config |
-| `Admin` | Users in the same sanghat: create, list, get, delete, edit a limited field set, import accounts, report issues for those users |
-| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, import, issue inbox, resolve issues, write app configurations |
+| `Admin` | Users in the same sanghat: create, list, get, delete, edit a limited field set, report issues for those users |
+| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), issue inbox, resolve issues, write app configurations |
 
 ## Payload encryption
 
@@ -220,10 +220,10 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | DELETE | `/accounts/:id` | token | Delete account (Admin / SuperAdmin / Developer) |
 | GET | `/accounts/:accountId/teams` | token | List teams |
 | PATCH | `/accounts/:accountId/teams/:teamId` | token | Update one team |
-| GET | `/accounts/bulk/template` | token | Download Excel template (binary, not encrypted) |
-| POST | `/accounts/bulk/upload` | token | Queue Excel import (`202`, `{ jobId, status }`) |
-| GET | `/accounts/bulk/upload/:jobId` | token | Import job status |
-| GET | `/accounts/bulk/upload/:jobId/errors` | token | Paginated row errors |
+| GET | `/accounts/bulk/template` | token | Download Excel template (binary, not encrypted). SuperAdmin / Developer |
+| POST | `/accounts/bulk/upload` | token | Queue Excel import (`202`, `{ jobId, status }`). SuperAdmin / Developer |
+| GET | `/accounts/bulk/upload/:jobId` | token | Import job status. SuperAdmin / Developer |
+| GET | `/accounts/bulk/upload/:jobId/errors` | token | Paginated row errors. SuperAdmin / Developer |
 
 ### Issues
 

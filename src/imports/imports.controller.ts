@@ -10,7 +10,6 @@ import {
   Query,
   Req,
   ServiceUnavailableException,
-  ForbiddenException,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -24,9 +23,11 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AccountsService } from '../accounts/accounts.service';
+import { Roles } from '../accounts/decorators/roles.decorator';
 import { AccountRole } from '../accounts/entities/account.entity';
 import { AppKeyGuard } from '../accounts/guards/app-key.guard';
 import { JweAuthGuard } from '../accounts/guards/jwe-auth.guard';
+import { RolesGuard } from '../accounts/guards/roles.guard';
 import { AccountImportService } from './account-import.service';
 import { ListImportErrorsQueryDto } from './dto/list-import-errors-query.dto';
 import { ImportQueueService } from './import-queue.service';
@@ -34,7 +35,8 @@ import { ImportQueueService } from './import-queue.service';
 @ApiTags('account imports')
 @ApiHeader({ name: 'X-App-Key', required: true })
 @ApiBearerAuth()
-@UseGuards(AppKeyGuard, JweAuthGuard)
+@Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+@UseGuards(AppKeyGuard, JweAuthGuard, RolesGuard)
 @Controller('accounts/bulk')
 export class ImportsController {
   constructor(
@@ -55,8 +57,6 @@ export class ImportsController {
         'No file uploaded (field name must be "file")',
       );
     }
-    const caller = await this.accounts.findOne(req.user!.sub);
-    this.assertCanImport(caller.role);
     const job = await this.imports.create(file, req.user!.sub);
     try {
       await this.queue.enqueue(job.id);
@@ -78,7 +78,7 @@ export class ImportsController {
     @Req() req: Request,
   ) {
     const caller = await this.accounts.findOne(req.user!.sub);
-    return this.imports.findOne(jobId, req.user!.sub, caller.role);
+    return this.imports.findOne(jobId, caller.role);
   }
 
   @Get('upload/:jobId/errors')
@@ -88,16 +88,6 @@ export class ImportsController {
     @Query() query: ListImportErrorsQueryDto,
   ) {
     const caller = await this.accounts.findOne(req.user!.sub);
-    return this.imports.findErrors(jobId, req.user!.sub, caller.role, query);
-  }
-
-  private assertCanImport(role: AccountRole): void {
-    if (
-      role !== AccountRole.ADMIN &&
-      role !== AccountRole.SUPER_ADMIN &&
-      role !== AccountRole.DEVELOPER
-    ) {
-      throw new ForbiddenException('Your account cannot import accounts');
-    }
+    return this.imports.findErrors(jobId, caller.role, query);
   }
 }
