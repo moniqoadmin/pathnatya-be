@@ -14,10 +14,11 @@ export class HealthController {
   @Get()
   async check() {
     const result = await this.healthService.check();
+    const body = { ...result, version: '5.0.0' };
     if (result.status === 'down') {
-      throw new ServiceUnavailableException(result);
+      throw new ServiceUnavailableException(body);
     }
-    return result;
+    return body;
   }
 
   @Get('time')
