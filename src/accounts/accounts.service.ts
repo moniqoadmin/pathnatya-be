@@ -13,6 +13,7 @@ import * as ExcelJS from 'exceljs';
 import { Account, AccountRole } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
+import { authorizeCreateAccount } from './account-authorization';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { PatchTeamDto, UpdateTeamDto } from './dto/update-team.dto';
@@ -110,6 +111,14 @@ export class AccountsService {
     private readonly loginProtection: LoginProtectionService,
     private readonly passwordVerification: PasswordVerificationService,
   ) {}
+
+  async createForCaller(
+    callerId: string,
+    createAccountDto: CreateAccountDto,
+  ): Promise<AccountResponse> {
+    const caller = await this.getEntityOrFail(callerId);
+    return this.create(authorizeCreateAccount(caller, createAccountDto));
+  }
 
   async create(createAccountDto: CreateAccountDto): Promise<AccountResponse> {
     const existing = await this.accountsRepository.findOne({

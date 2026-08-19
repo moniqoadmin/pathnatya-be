@@ -31,7 +31,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 ### Accounts, teams, and login
 
-- CRUD for accounts keyed by an immutable **10-digit** US / UK / India phone number (no country code).
+- CRUD for accounts keyed by an immutable **10-digit** US / UK / India phone number (no country code). **Create** (`POST /api/accounts`) requires a token: Admin, SuperAdmin, or Developer. Admins may only create `User` accounts in their sanghat.
 - Organizational fields: country, sanghat, jilha, taluka, group, kendra, sanchalak name, metadata.
 - Roles: `User`, `Admin`, `SuperAdmin`, `Developer`.
 - **Device teams**: each account has up to `numberOfTeams` teams (default 1). A team is created when a new device MAC (`ipAddress`) sets a password or logs in, and is bound to that `systemAddress`.
@@ -107,7 +107,11 @@ npm install
 cp .env.example .env
 ```
 
-For a local Postgres / Railway **public** TCP proxy, set `DATABASE_URL` and typically `DB_SSL=true`. On Railway’s private network use the internal URL and `DB_SSL=false`.
+For a local Postgres / Railway **public** TCP proxy, set `DATABASE_URL` and typically `DB_SSL=true`. On Railway’s private network use the internal URL and `DB_SSL=false`. Use placeholders only — never commit a real password:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+```
 
 For local Swagger or curl, set `PAYLOAD_ENCRYPTION=false` (or call from localhost, which accepts plain JSON even when encryption is on).
 
@@ -166,7 +170,6 @@ Almost every route needs:
 
 **Public** (still require `X-App-Key` unless noted):
 
-- `POST /api/accounts` — create account
 - `POST /api/accounts/check-phone`
 - `POST /api/accounts/set-password`
 - `POST /api/accounts/login`
@@ -179,7 +182,7 @@ Almost every route needs:
 | Role | Typical access |
 | --- | --- |
 | `User` | Own teams, own issues/comments, own logs, videos, config |
-| `Admin` | Users in the same sanghat: list/edit a limited field set, import accounts, report issues for those users |
+| `Admin` | Users in the same sanghat: create, list, edit a limited field set, import accounts, report issues for those users |
 | `SuperAdmin` / `Developer` | All accounts, full edits, import, issue inbox, resolve issues |
 
 ## Payload encryption
@@ -215,7 +218,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| POST | `/accounts` | app key | Create an account |
+| POST | `/accounts` | token | Create an account (Admin / SuperAdmin / Developer) |
 | POST | `/accounts/check-phone` | app key | `{ exists, needsPassword }`; `?admin=true` skips device matching |
 | POST | `/accounts/set-password` | app key | Set / reset password for this device team |
 | POST | `/accounts/login` | app key | Login; `?admin=true` → 2h token, no device bind |
@@ -304,6 +307,8 @@ Entities are auto-loaded (`autoLoadEntities: true`). With `DB_SYNCHRONIZE=true`,
 ## Production notes
 
 - Set `DB_SYNCHRONIZE=false`. Apply schema changes yourself; do not rely on TypeORM auto-sync.
+- Never commit a real `DATABASE_URL`. Rotate any password that was ever checked in, even after the file is scrubbed.
+- Bootstrap the first SuperAdmin / Developer in the database; `POST /api/accounts` is not public.
 - Use strong unique values for `JWE_SECRET`, `ELECTRON_APP_KEY`, `ELECTRON_APP_1`, and all `LOGIN_SUCCESS_KEY_*`.
 - Keep `PAYLOAD_ENCRYPTION=true` for the Electron client.
 - Leave `LOAD_TEST_KEY` unset.

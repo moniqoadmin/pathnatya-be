@@ -57,12 +57,16 @@ export class AccountsController {
     private readonly jweService: JweService,
   ) {}
 
-  @Public()
-  @AuthThrottle()
   @Post()
-  @ApiOperation({ summary: 'Create an account' })
-  create(@Body() createAccountDto: CreateAccountDto) {
-    return this.accountsService.create(createAccountDto);
+  @ApiOperation({
+    summary:
+      'Create an account. Admin, SuperAdmin, and Developer only. Admins may only create User accounts in their sanghat. SuperAdmin and Developer may set role.',
+  })
+  create(@Req() req: Request, @Body() createAccountDto: CreateAccountDto) {
+    return this.accountsService.createForCaller(
+      req.user!.sub,
+      createAccountDto,
+    );
   }
 
   @SkipPayloadEncryption()

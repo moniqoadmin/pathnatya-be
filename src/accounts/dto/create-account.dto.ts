@@ -71,7 +71,7 @@ export class CreateAccountDto {
     enum: AccountRole,
     default: AccountRole.USER,
     description:
-      'Account role. Defaults to User when omitted. Allowed: User, Admin, SuperAdmin, Developer.',
+      'Account role. Defaults to User when omitted. Only SuperAdmin and Developer may set this; Admins always create User accounts.',
   })
   @IsOptional()
   @IsEnum(AccountRole)
