@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -45,3 +45,7 @@ export class UpdateTeamDto {
   @MinLength(6)
   password?: string;
 }
+
+export class PatchTeamDto extends OmitType(UpdateTeamDto, [
+  'teamNumber',
+] as const) {}

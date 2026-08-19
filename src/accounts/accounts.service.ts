@@ -15,7 +15,7 @@ import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
-import { UpdateTeamDto } from './dto/update-team.dto';
+import { PatchTeamDto, UpdateTeamDto } from './dto/update-team.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { hashPassword } from './password.util';
@@ -34,6 +34,14 @@ export type TeamResponse = Omit<Team, 'passwordHash' | 'account'>;
 
 export type AccountResponse = Omit<Account, 'teams'> & {
   teams: TeamResponse[];
+};
+
+export type TeamsResponse = {
+  teams: TeamResponse[];
+};
+
+export type TeamItemResponse = {
+  team: TeamResponse;
 };
 
 const LOGIN_DISABLED_MESSAGE =
@@ -199,6 +207,16 @@ export class AccountsService {
     return this.toResponse(account);
   }
 
+  async findTeams(
+    callerId: string,
+    accountId: string,
+  ): Promise<TeamsResponse> {
+    const caller = await this.getEntityOrFail(callerId);
+    const account = await this.getEntityOrFail(accountId);
+    this.assertCanViewAccount(caller, account);
+    return this.toTeamsResponse(account.teams);
+  }
+
   async findByPhoneNumber(phoneNumber: string): Promise<AccountResponse> {
     const account = await this.accountsRepository.findOne({
       where: { phoneNumber },
@@ -316,6 +334,23 @@ export class AccountsService {
     return this.toResponse(saved);
   }
 
+  async updateTeam(
+    callerId: string,
+    accountId: string,
+    teamId: string,
+    patchTeamDto: PatchTeamDto,
+  ): Promise<TeamItemResponse> {
+    const caller = await this.getEntityOrFail(callerId);
+    const account = await this.getEntityOrFail(accountId);
+    const team = this.requireTeamById(account, teamId);
+    this.assertCanEditAccount(caller, account, {
+      teams: [{ teamNumber: team.teamNumber, ...patchTeamDto }],
+    });
+    await this.applyTeamUpdate(team, patchTeamDto);
+    await this.teamsRepository.save(team);
+    return { team: this.toTeamResponse(team) };
+  }
+
   /**
    * Blocks only the team bound to this device MAC (systemAddress) from
    * authenticating. Other teams on the same account stay usable.
@@ -331,6 +366,41 @@ export class AccountsService {
     }
     team.isLoginDisabled = true;
     await this.teamsRepository.save(team);
+  }
+
+  private assertCanViewAccount(caller: Account, account: Account): void {
+    if (caller.id === account.id) {
+      return;
+    }
+
+    if (
+      caller.role === AccountRole.SUPER_ADMIN ||
+      caller.role === AccountRole.DEVELOPER
+    ) {
+      return;
+    }
+
+    if (caller.role === AccountRole.ADMIN) {
+      if (!caller.sanghat) {
+        throw new ForbiddenException('Admin account has no sanghat assigned');
+      }
+      if (account.role !== AccountRole.USER) {
+        throw new ForbiddenException('Admins can only view User accounts');
+      }
+      if (
+        !account.sanghat ||
+        account.sanghat.toLowerCase() !== caller.sanghat.toLowerCase()
+      ) {
+        throw new ForbiddenException(
+          'Admins can only view accounts in their sanghat',
+        );
+      }
+      return;
+    }
+
+    throw new ForbiddenException(
+      'You can only view teams for your own account',
+    );
   }
 
   private assertCanEditAccount(
@@ -951,9 +1021,52 @@ export class AccountsService {
     return team;
   }
 
+  private requireTeamById(account: Account, teamId: string): Team {
+    const team = account.teams.find((item) => item.id === teamId);
+    if (!team) {
+      throw new NotFoundException(`Team ${teamId} not found`);
+    }
+    return team;
+  }
+
   private clearTeamPassword(team: Team): void {
     team.passwordHash = null;
     team.setPassword = true;
+  }
+
+  private async applyTeamUpdate(
+    team: Team,
+    update: Pick<UpdateTeamDto, 'setPassword' | 'isLoginDisabled' | 'password'>,
+  ): Promise<void> {
+    if (
+      update.setPassword === undefined &&
+      update.isLoginDisabled === undefined &&
+      update.password === undefined
+    ) {
+      throw new BadRequestException('No team fields to update');
+    }
+    if (update.password !== undefined && update.setPassword === true) {
+      throw new BadRequestException(
+        'Cannot set a password and setPassword=true in the same request',
+      );
+    }
+    if (update.setPassword === true) {
+      this.clearTeamPassword(team);
+    } else if (update.setPassword === false) {
+      if (!team.passwordHash) {
+        throw new BadRequestException(
+          'Cannot set setPassword to false unless a password has been set',
+        );
+      }
+      team.setPassword = false;
+    }
+    if (update.password !== undefined) {
+      team.passwordHash = await hashPassword(update.password);
+      team.setPassword = false;
+    }
+    if (update.isLoginDisabled !== undefined) {
+      team.isLoginDisabled = update.isLoginDisabled;
+    }
   }
 
   private async applyTeamUpdates(
@@ -961,29 +1074,8 @@ export class AccountsService {
     updates: UpdateTeamDto[],
   ): Promise<void> {
     for (const update of updates) {
-      if (update.password !== undefined && update.setPassword === true) {
-        throw new BadRequestException(
-          'Cannot set a password and setPassword=true in the same request',
-        );
-      }
       const team = this.requireTeam(account, update.teamNumber);
-      if (update.setPassword === true) {
-        this.clearTeamPassword(team);
-      } else if (update.setPassword === false) {
-        if (!team.passwordHash) {
-          throw new BadRequestException(
-            'Cannot set setPassword to false unless a password has been set',
-          );
-        }
-        team.setPassword = false;
-      }
-      if (update.password !== undefined) {
-        team.passwordHash = await hashPassword(update.password);
-        team.setPassword = false;
-      }
-      if (update.isLoginDisabled !== undefined) {
-        team.isLoginDisabled = update.isLoginDisabled;
-      }
+      await this.applyTeamUpdate(team, update);
     }
   }
 
@@ -1100,12 +1192,17 @@ export class AccountsService {
     return rest;
   }
 
+  private toTeamsResponse(teams: Team[] | undefined): TeamsResponse {
+    return {
+      teams: [...(teams ?? [])]
+        .sort((a, b) => a.teamNumber - b.teamNumber)
+        .map((team) => this.toTeamResponse(team)),
+    };
+  }
+
   private toResponse(account: Account): AccountResponse {
-    const teams = [...(account.teams ?? [])]
-      .sort((a, b) => a.teamNumber - b.teamNumber)
-      .map((team) => this.toTeamResponse(team));
     const { teams: _teams, ...rest } = account;
     void _teams;
-    return { ...rest, teams };
+    return { ...rest, ...this.toTeamsResponse(account.teams) };
   }
 }
