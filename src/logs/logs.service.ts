@@ -48,7 +48,7 @@ export class LogsService {
       event: dto.event,
       tampered: dto.tampered ?? false,
       ipAddress,
-      meta: dto.meta ?? null,
+      meta: dto.metadata ?? dto.meta ?? null,
     });
 
     const saved = await this.logsRepository.save(log);

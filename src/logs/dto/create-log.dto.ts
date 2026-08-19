@@ -32,8 +32,16 @@ export class CreateLogDto {
   ipAddress?: string;
 
   @ApiPropertyOptional({
-    example: { videoId: 'abc', durationSeconds: 120 },
+    example: { fullscreenClicks: 2 },
     description: 'Arbitrary JSON metadata for this log event.',
+  })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    example: { videoId: 'abc', durationSeconds: 120 },
+    description: 'Alias for metadata. Prefer metadata.',
   })
   @IsOptional()
   @IsObject()

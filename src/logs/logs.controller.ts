@@ -7,6 +7,7 @@ import {
   Post,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -19,6 +20,7 @@ import { AppKeyGuard } from '../accounts/guards/app-key.guard';
 import { JweAuthGuard } from '../accounts/guards/jwe-auth.guard';
 import { CreateLogDto } from './dto/create-log.dto';
 import { LogsService } from './logs.service';
+import { UnwrapDataInterceptor } from './unwrap-data.interceptor';
 
 @ApiTags('logs')
 @ApiHeader({
@@ -33,9 +35,10 @@ export class LogsController {
   constructor(private readonly logsService: LogsService) {}
 
   @Post()
+  @UseInterceptors(UnwrapDataInterceptor)
   @ApiOperation({
     summary:
-      'Create a log event. Account id and phone number are taken from the auth token. FILES_TAMPERED requires ipAddress (MAC) and disables login only for that device team.',
+      'Create a log event. Account id and phone number are taken from the auth token. FILES_TAMPERED requires ipAddress (MAC) and disables login only for that device team. Body may be flat or wrapped as { data: { event, tampered, ipAddress, metadata } }.',
   })
   create(@Req() req: Request, @Body() createLogDto: CreateLogDto) {
     return this.logsService.create(req.user!.sub, createLogDto);
