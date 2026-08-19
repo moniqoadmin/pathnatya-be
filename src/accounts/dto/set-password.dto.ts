@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -24,4 +25,12 @@ export class SetPasswordDto {
   @IsString()
   @MaxLength(64)
   ipAddress?: string;
+
+  @ApiPropertyOptional({
+    example: { deviceName: 'kendra-hall-1', os: 'darwin' },
+    description: 'Arbitrary JSON metadata stored on this device team.',
+  })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }

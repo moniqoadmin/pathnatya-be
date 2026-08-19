@@ -538,6 +538,9 @@ export class AccountsService {
     if (resolvedIp) {
       team.systemAddress = resolvedIp;
     }
+    if (setPasswordDto.metadata !== undefined) {
+      team.metadata = setPasswordDto.metadata;
+    }
     await this.teamsRepository.save(team);
 
     return {
@@ -1032,6 +1035,7 @@ export class AccountsService {
   private clearTeamPassword(team: Team): void {
     team.passwordHash = null;
     team.setPassword = true;
+    team.systemAddress = null;
   }
 
   private async applyTeamUpdate(

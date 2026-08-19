@@ -20,7 +20,7 @@ export class UpdateAccountDto extends PartialType(
   @ApiPropertyOptional({
     example: true,
     description:
-      'When true, every team on this account must set a password again (hashes are cleared). Admins may only change this from false to true. Prefer teams[].setPassword to reset one team.',
+      'When true, every team on this account must set a password again (hashes and bound system addresses are cleared). Admins may only change this from false to true. Prefer teams[].setPassword to reset one team.',
   })
   @IsOptional()
   @IsBoolean()

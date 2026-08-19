@@ -20,7 +20,7 @@ export class UpdateTeamDto {
   @ApiPropertyOptional({
     example: true,
     description:
-      'When true, this team must set a password again (password hash is cleared). Admins may only change this from false to true.',
+      'When true, this team must set a password again. The password hash and bound system address are cleared. Admins may only change this from false to true.',
   })
   @IsOptional()
   @IsBoolean()
