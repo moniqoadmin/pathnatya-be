@@ -50,7 +50,7 @@ export class TeamsController {
   @Patch(':accountId/teams/:teamId')
   @ApiOperation({
     summary:
-      'Update one team by id (password reset, login disable, password). Optional admin query flag. setPassword=true also clears the bound system address. Admins may only set setPassword (false → true) and isLoginDisabled, and only for Users in their sanghat. SuperAdmin and Developer may also set password.',
+      'Update one team by id (password reset, login disable, password). Optional admin query flag. setPassword=true also clears the bound system address. Enabling login (isLoginDisabled=false) requires reason and writes a USER_ENABLED audit-trail entry. Admins may only set setPassword (false → true) and isLoginDisabled, and only for Users in their sanghat. SuperAdmin and Developer may also set password.',
   })
   update(
     @Req() req: Request,

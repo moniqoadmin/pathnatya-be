@@ -6,8 +6,10 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateTeamDto {
@@ -33,6 +35,18 @@ export class UpdateTeamDto {
   @IsOptional()
   @IsBoolean()
   isLoginDisabled?: boolean;
+
+  @ApiPropertyOptional({
+    example:
+      'User completed the required follow-up after the previous login block.',
+    description:
+      'Required when enabling login (isLoginDisabled=false). Stored as the USER_ENABLED audit-trail message.',
+  })
+  @ValidateIf((dto: UpdateTeamDto) => dto.isLoginDisabled === false)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  reason?: string;
 
   @ApiPropertyOptional({
     example: 'S3curePass!',

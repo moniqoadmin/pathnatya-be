@@ -3,9 +3,11 @@ import {
   ConflictException,
   ForbiddenException,
   HttpException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
@@ -34,6 +36,10 @@ import {
 import { isSupportedPhoneNumber } from './validators/supported-phone-number.validator';
 import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
+import {
+  AuditTrailService,
+  USER_ENABLED_EVENT,
+} from '../audit-trail/audit-trail.service';
 
 export type TeamResponse = Omit<Team, 'passwordHash' | 'account'>;
 
@@ -115,6 +121,8 @@ export class AccountsService {
     private readonly jweService: JweService,
     private readonly loginProtection: LoginProtectionService,
     private readonly passwordVerification: PasswordVerificationService,
+    @Inject(forwardRef(() => AuditTrailService))
+    private readonly auditTrailService: AuditTrailService,
   ) {}
 
   async createForCaller(
@@ -268,6 +276,7 @@ export class AccountsService {
     'teamNumber',
     'setPassword',
     'isLoginDisabled',
+    'reason',
   ]);
 
   async update(
@@ -304,8 +313,11 @@ export class AccountsService {
       team.setPassword = false;
     }
 
+    const enabledReasons: string[] = [];
     if (updateAccountDto.teams) {
-      await this.applyTeamUpdates(account, updateAccountDto.teams);
+      enabledReasons.push(
+        ...(await this.applyTeamUpdates(account, updateAccountDto.teams)),
+      );
     }
 
     if (updateAccountDto.role !== undefined) {
@@ -355,6 +367,7 @@ export class AccountsService {
     await this.teamsRepository.save(account.teams);
     const saved = await this.accountsRepository.save(account);
     saved.teams = account.teams;
+    await this.recordUserEnabled(callerId, saved.id, enabledReasons);
     return this.toResponse(saved);
   }
 
@@ -372,6 +385,11 @@ export class AccountsService {
     });
     await this.applyTeamUpdate(team, patchTeamDto);
     await this.teamsRepository.save(team);
+    if (patchTeamDto.isLoginDisabled === false) {
+      await this.recordUserEnabled(callerId, account.id, [
+        patchTeamDto.reason!,
+      ]);
+    }
     return { team: this.toTeamResponse(team) };
   }
 
@@ -1051,10 +1069,29 @@ export class AccountsService {
   private async applyTeamUpdates(
     account: Account,
     updates: UpdateTeamDto[],
-  ): Promise<void> {
+  ): Promise<string[]> {
+    const enabledReasons: string[] = [];
     for (const update of updates) {
       const team = this.requireTeam(account, update.teamNumber);
       await this.applyTeamUpdate(team, update);
+      if (update.isLoginDisabled === false) {
+        enabledReasons.push(update.reason!);
+      }
+    }
+    return enabledReasons;
+  }
+
+  private async recordUserEnabled(
+    callerId: string,
+    targetAccountId: string,
+    reasons: string[],
+  ): Promise<void> {
+    for (const reason of reasons) {
+      await this.auditTrailService.create(callerId, {
+        event: USER_ENABLED_EVENT,
+        message: reason,
+        targetAccountId,
+      });
     }
   }
 

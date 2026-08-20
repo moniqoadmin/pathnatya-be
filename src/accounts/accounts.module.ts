@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditTrailModule } from '../audit-trail/audit-trail.module';
 import { Account } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { AccountsService } from './accounts.service';
@@ -14,7 +15,10 @@ import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Account, Team])],
+  imports: [
+    TypeOrmModule.forFeature([Account, Team]),
+    forwardRef(() => AuditTrailModule),
+  ],
   controllers: [AccountsController, TeamsController],
   providers: [
     AccountsService,
