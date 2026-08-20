@@ -14,7 +14,7 @@ export class HealthController {
   @Get()
   async check() {
     const result = await this.healthService.check();
-    const body = { ...result, version: '4.9.0' };
+    const body = { ...result, version: '4.9.0' , videoVersion: '1.0.0' };
     if (result.status === 'down') {
       throw new ServiceUnavailableException(body);
     }
