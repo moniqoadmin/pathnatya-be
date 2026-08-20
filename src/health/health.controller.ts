@@ -13,19 +13,28 @@ export class HealthController {
 
   @Get()
   async check() {
-    const result = await this.healthService.check();
-    const body = { ...result, version: '4.9.0' , videoVersion: '2.0.0' };
-    if (result.status === 'down') {
-      throw new ServiceUnavailableException(body);
-    }
-    return body;
+    return this.healthResponse();
   }
 
   @Get('time')
   @ApiOperation({
     summary: 'Current server time in UTC (ISO-8601 and Unix milliseconds)',
   })
-  now() {
-    return this.healthService.now();
+  async now() {
+    return this.healthResponse();
+  }
+
+  private async healthResponse() {
+    const result = await this.healthService.check();
+    const body = {
+      ...result,
+      ...this.healthService.now(),
+      version: '4.9.0',
+      videoVersion: '2.0.0',
+    };
+    if (result.status === 'down') {
+      throw new ServiceUnavailableException(body);
+    }
+    return body;
   }
 }
