@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { authorizeViewAccount } from '../accounts/account-authorization';
 import { AccountsService } from '../accounts/accounts.service';
 import { CreateLogDto } from './dto/create-log.dto';
+import { ListLogsQueryDto } from './dto/list-logs-query.dto';
 import { Log } from './entities/log.entity';
 
 export const FILES_TAMPERED_EVENT = 'FILES_TAMPERED';
@@ -14,8 +16,17 @@ export type LogResponse = {
   event: string;
   tampered: boolean;
   ipAddress: string | null;
+  teamNumber: number | null;
   meta: Record<string, unknown> | null;
   createdAt: Date;
+};
+
+export type PaginatedLogsResponse = {
+  data: LogResponse[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 };
 
 @Injectable()
@@ -52,28 +63,60 @@ export class LogsService {
     });
 
     const saved = await this.logsRepository.save(log);
-    return this.toResponse(saved);
+    return this.toResponse(saved, account.teams);
   }
 
   async findAllForAccount(accountId: string): Promise<LogResponse[]> {
+    const account = await this.accountsService.findOne(accountId);
     const logs = await this.logsRepository.find({
-      where: { id: accountId },
+      where: { id: account.id },
       order: { createdAt: 'DESC' },
     });
-    return logs.map((log) => this.toResponse(log));
+    return logs.map((log) => this.toResponse(log, account.teams));
+  }
+
+  async findAllForAccountId(
+    callerId: string,
+    accountId: string,
+    query: ListLogsQueryDto,
+  ): Promise<PaginatedLogsResponse> {
+    const caller = await this.accountsService.findOne(callerId);
+    const account = await this.accountsService.findOne(accountId);
+    authorizeViewAccount(caller, account);
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [logs, total] = await this.logsRepository.findAndCount({
+      where: { id: account.id },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      data: logs.map((log) => this.toResponse(log, account.teams)),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 
   async findOne(logId: string, accountId: string): Promise<LogResponse> {
+    const account = await this.accountsService.findOne(accountId);
     const log = await this.logsRepository.findOne({
-      where: { logId, id: accountId },
+      where: { logId, id: account.id },
     });
     if (!log) {
       throw new NotFoundException(`Log with logId ${logId} not found`);
     }
-    return this.toResponse(log);
+    return this.toResponse(log, account.teams);
   }
 
-  private toResponse(log: Log): LogResponse {
+  private toResponse(
+    log: Log,
+    teams: { teamNumber: number; systemAddress: string | null }[],
+  ): LogResponse {
     return {
       logId: log.logId,
       id: log.id,
@@ -81,8 +124,23 @@ export class LogsService {
       event: log.event,
       tampered: log.tampered,
       ipAddress: log.ipAddress,
+      teamNumber: this.teamNumberForIp(teams, log.ipAddress),
       meta: log.meta,
       createdAt: log.createdAt,
     };
+  }
+
+  private teamNumberForIp(
+    teams: { teamNumber: number; systemAddress: string | null }[],
+    ipAddress: string | null,
+  ): number | null {
+    if (!ipAddress) {
+      return null;
+    }
+    const normalized = ipAddress.trim().toLowerCase();
+    const team = teams.find(
+      (item) => item.systemAddress?.trim().toLowerCase() === normalized,
+    );
+    return team?.teamNumber ?? null;
   }
 }
