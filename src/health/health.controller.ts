@@ -1,11 +1,11 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { HealthService } from './health.service';
 import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorator';
 
 @ApiTags('health')
-@SkipThrottle()
+@Throttle({ default: { limit: 10, ttl: 60_000 } })
 @SkipPayloadEncryption()
 @Controller('health')
 export class HealthController {

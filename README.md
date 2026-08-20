@@ -20,7 +20,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - **Helmet** security headers (CSP tuned for Swagger, HSTS, COEP, COOP, Permissions-Policy).
 - **CORS allowlist** via `CORS_ORIGINS`. Requests with no `Origin` (Electron main process, curl) are allowed; browsers must match the list.
 - **Global request validation** (`whitelist` + `forbidNonWhitelisted`).
-- **Rate limiting** per IP (default 100 requests / 60s). Auth endpoints are capped at 30 / 60s. `GET /api/health` is not throttled.
+- **Rate limiting** per IP (default 30 requests / 60s). Auth endpoints (`check-phone`, `set-password`, `login`) are capped at 15 / 60s. Health endpoints are capped at 10 / 60s.
 - **Optional load-test bypass** with `X-Load-Test-Key` matching `LOAD_TEST_KEY` (non-production only).
 - **App key gate**: most routes require `X-App-Key` equal to `ELECTRON_APP_KEY` (timing-safe compare).
 - **JWE sessions**: compact JWE (`dir` / `A256GCM`) from `JWE_SECRET`. Electron sessions last **5 days**; `?admin=true` login issues a **2-hour** token.
@@ -79,7 +79,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 ### Health and ops
 
 - `GET /api` — service name and status.
-- `GET /api/health` — app + Postgres (`SELECT 1`); `503` when the DB is down. Skips throttle and payload encryption.
+- `GET /api/health` — app + Postgres (`SELECT 1`); `503` when the DB is down. Capped at 10 / 60s; skips payload encryption.
 - `GET /api/health/time` — server UTC as ISO-8601 and Unix milliseconds.
 - Graceful shutdown hooks.
 - Swagger at `/docs` when `NODE_ENV` is not `production`, or when `SWAGGER_ENABLED=true`.
@@ -147,7 +147,7 @@ npm run start:dev
 | `IMPORT_MAX_FILE_SIZE_MB` | Upload size cap | `20` |
 | `IMPORT_JOB_RETENTION_DAYS` | How long import jobs are kept | `7` |
 | `THROTTLE_TTL_MS` | Global throttle window | `60000` |
-| `THROTTLE_LIMIT` | Global requests per window per IP | `100` |
+| `THROTTLE_LIMIT` | Global requests per window per IP | `30` |
 | `LOAD_TEST_KEY` | Optional; matching `X-Load-Test-Key` skips throttles outside production | unset |
 
 ## Authentication

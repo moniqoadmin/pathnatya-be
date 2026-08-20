@@ -42,7 +42,7 @@ import { SkipPayloadEncryption } from '../crypto/skip-payload-encryption.decorat
 import { AccountRole } from './entities/account.entity';
 
 /** Stricter per-IP limit for unauthenticated / credential endpoints. */
-const AuthThrottle = () => Throttle({ default: { limit: 30, ttl: 60_000 } });
+const AuthThrottle = () => Throttle({ default: { limit: 15, ttl: 60_000 } });
 
 @ApiTags('accounts')
 @ApiHeader({

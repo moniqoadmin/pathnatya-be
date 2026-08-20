@@ -57,7 +57,7 @@ function loadTestKeyMatches(
           throttlers: [
             {
               ttl: Number(config.get('THROTTLE_TTL_MS', 60_000)),
-              limit: Number(config.get('THROTTLE_LIMIT', 100)),
+              limit: Number(config.get('THROTTLE_LIMIT', 30)),
             },
           ],
         };
