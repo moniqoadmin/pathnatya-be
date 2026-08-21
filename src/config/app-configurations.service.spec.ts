@@ -1,8 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { AccountRole } from '../accounts/entities/account.entity';
 import { AppConfigurationsService } from './app-configurations.service';
 
 const videoConfig = {
@@ -25,18 +28,56 @@ describe('AppConfigurationsService', () => {
     save: jest.fn(),
     manager,
   };
-  const service = new AppConfigurationsService(repository as never);
+  const accountsRepository = {
+    findOne: jest.fn(),
+  };
+  const service = new AppConfigurationsService(
+    repository as never,
+    accountsRepository as never,
+  );
 
   beforeEach(() => {
     jest.resetAllMocks();
   });
 
-  it('lists configurations by id', async () => {
+  it('lists configurations for any authenticated caller', async () => {
     const rows = [{ id: 1, videoConfig, videoFiles: [] }];
     repository.find.mockResolvedValue(rows);
 
-    await expect(service.findAll()).resolves.toEqual(rows);
+    await expect(service.findAll('u-1', false)).resolves.toEqual(rows);
     expect(repository.find).toHaveBeenCalledWith({ order: { id: 'ASC' } });
+    expect(accountsRepository.findOne).not.toHaveBeenCalled();
+  });
+
+  it('lists configurations for SuperAdmin when admin=true', async () => {
+    const rows = [{ id: 1, videoConfig, videoFiles: [] }];
+    accountsRepository.findOne.mockResolvedValue({
+      id: 'sa-1',
+      role: AccountRole.SUPER_ADMIN,
+    });
+    repository.find.mockResolvedValue(rows);
+
+    await expect(service.findAll('sa-1', true)).resolves.toEqual(rows);
+  });
+
+  it('rejects User and Admin when admin=true', async () => {
+    accountsRepository.findOne.mockResolvedValue({
+      id: 'u-1',
+      role: AccountRole.USER,
+    });
+
+    await expect(service.findAll('u-1', true)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(repository.find).not.toHaveBeenCalled();
+  });
+
+  it('rejects admin=true when the caller account is missing', async () => {
+    accountsRepository.findOne.mockResolvedValue(null);
+
+    await expect(service.findAll('gone', true)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('returns one configuration by id', async () => {

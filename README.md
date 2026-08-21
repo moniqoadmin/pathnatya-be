@@ -79,7 +79,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 ### Configuration
 
-- **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id. List, create/replace, and update (including changing `id`) are SuperAdmin / Developer only. Changing a row’s id remaps accounts that pointed at the old id. Get-by-id is authenticated so the Electron app can load the row assigned to an account.
+- **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id. List is authenticated; `?admin=true` is SuperAdmin / Developer only. Create/replace and update (including changing `id`) are SuperAdmin / Developer only. Changing a row’s id remaps accounts that pointed at the old id. Get-by-id is authenticated so the Electron app can load the row assigned to an account.
 - **Entitlements**: SuperAdmin / Developer feature flags the Electron app and admin dashboard can read. `ADMIN_LOGIN_ELECTRON_APP` and `SHOW_ANALYTICS` are seeded **enabled** when the table is created (or when a known key is missing). When `ADMIN_LOGIN_ELECTRON_APP` is **true**, Admin / SuperAdmin / Developer may log in with `?admin=true` or `?admin=false`. When it is **false**, those roles may only log in with `?admin=true`; the Electron app accepts User roles only. When `SHOW_ANALYTICS` is **false**, `GET /api/accounts/analytics` returns `403` and the dashboard should hide login analytics. Creates and updates write an audit-trail entry for the caller.
 
 ### Health and ops
@@ -261,7 +261,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/app-configurations` | token | List configurations. SuperAdmin / Developer |
+| GET | `/app-configurations` | token | List configurations. `?admin=true` SuperAdmin / Developer only |
 | GET | `/app-configurations/:id` | token | Get one configuration |
 | POST | `/app-configurations` | token | Create or replace by numeric `id` in the body. SuperAdmin / Developer |
 | PATCH | `/app-configurations/:id` | token | Update `id`, `videoConfig`, and/or `videoFiles`. Changing `id` remaps accounts that pointed at the old id. SuperAdmin / Developer |

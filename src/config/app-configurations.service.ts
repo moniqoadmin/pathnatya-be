@@ -1,25 +1,40 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { Account } from '../accounts/entities/account.entity';
+import { Account, AccountRole } from '../accounts/entities/account.entity';
 import { UpdateAppConfigurationDto } from './dto/update-app-configuration.dto';
 import { UpsertAppConfigurationDto } from './dto/upsert-app-configuration.dto';
 import { AppConfiguration } from './entities/app-configuration.entity';
+
+const ADMIN_LIST_ROLES: ReadonlySet<AccountRole> = new Set([
+  AccountRole.SUPER_ADMIN,
+  AccountRole.DEVELOPER,
+]);
 
 @Injectable()
 export class AppConfigurationsService {
   constructor(
     @InjectRepository(AppConfiguration)
     private readonly repository: Repository<AppConfiguration>,
+    @InjectRepository(Account)
+    private readonly accountsRepository: Repository<Account>,
   ) {}
 
-  findAll(): Promise<AppConfiguration[]> {
+  async findAll(
+    callerId: string,
+    adminQuery: boolean,
+  ): Promise<AppConfiguration[]> {
+    if (adminQuery) {
+      await this.assertAdminListAccess(callerId);
+    }
     return this.repository.find({ order: { id: 'ASC' } });
   }
 
@@ -89,5 +104,18 @@ export class AppConfigurationsService {
     });
 
     return this.findOne(nextId);
+  }
+
+  private async assertAdminListAccess(callerId: string): Promise<void> {
+    const account = await this.accountsRepository.findOne({
+      where: { id: callerId },
+      select: ['id', 'role'],
+    });
+    if (!account) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+    if (!ADMIN_LIST_ROLES.has(account.role)) {
+      throw new ForbiddenException('Your account cannot perform this action');
+    }
   }
 }

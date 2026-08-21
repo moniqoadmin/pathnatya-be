@@ -7,9 +7,11 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { Roles } from '../accounts/decorators/roles.decorator';
 import { OptionalAdminQueryDto } from '../accounts/dto/optional-admin-query.dto';
 import { AccountRole } from '../accounts/entities/account.entity';
@@ -32,14 +34,13 @@ import { UpsertAppConfigurationDto } from './dto/upsert-app-configuration.dto';
 export class AppConfigurationsController {
   constructor(private readonly service: AppConfigurationsService) {}
 
-  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
   @Get()
   @ApiOperation({
     summary:
-      'List all application configurations. SuperAdmin and Developer only.',
+      'List all application configurations. Any authenticated client may call this. With ?admin=true, SuperAdmin and Developer only.',
   })
-  findAll(@Query() _query: OptionalAdminQueryDto) {
-    return this.service.findAll();
+  findAll(@Req() req: Request, @Query() query: OptionalAdminQueryDto) {
+    return this.service.findAll(req.user!.sub, query.admin === true);
   }
 
   @Get(':id')
