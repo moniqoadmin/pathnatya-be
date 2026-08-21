@@ -165,6 +165,8 @@ const UNCHANGED_VALUE_ERROR = 'value did not change';
 
 const BULK_FLAGS_BATCH_SIZE = 500;
 
+const PG_UNIQUE_VIOLATION = '23505';
+
 @Injectable()
 export class AccountsService {
   constructor(
@@ -1197,14 +1199,21 @@ export class AccountsService {
     return COUNTRY_CODE_TO_NAME[countryCode] ?? countryCode;
   }
 
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      error instanceof QueryFailedError &&
+      typeof error.driverError === 'object' &&
+      error.driverError !== null &&
+      'code' in error.driverError &&
+      error.driverError.code === PG_UNIQUE_VIOLATION
+    );
+  }
+
   private toErrorMessage(error: unknown): string {
     if (error instanceof ConflictException) {
       return 'number already exists';
     }
-    if (
-      error instanceof QueryFailedError &&
-      (error as QueryFailedError & { code?: string }).code === '23505'
-    ) {
+    if (this.isUniqueViolation(error)) {
       return 'number already exists';
     }
     if (error instanceof HttpException) {

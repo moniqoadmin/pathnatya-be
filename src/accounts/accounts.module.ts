@@ -6,6 +6,7 @@ import { Account } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { BulkFlagJob } from './entities/bulk-flag-job.entity';
 import { BulkFlagJobError } from './entities/bulk-flag-job-error.entity';
+import { AccountsSeedService } from './accounts.seed';
 import { AccountsService } from './accounts.service';
 import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
 import { BulkFlagsJobService } from './bulk-flags-job.service';
@@ -29,6 +30,7 @@ import { AppCacheService } from '../config/app-cache.service';
   controllers: [AccountsController, TeamsController, TeamItemController],
   providers: [
     AccountsService,
+    AccountsSeedService,
     BulkAccountsUploadService,
     BulkFlagsJobService,
     BulkFlagsQueueService,
