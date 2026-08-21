@@ -76,9 +76,12 @@ export class AccountsController {
   @Get('bulk/template')
   @ApiOperation({
     summary:
-      'Download an .xlsx template (headers only) to fill in and upload back. SuperAdmin and Developer only.',
+      'Download an .xlsx template (headers only) to fill in and upload back. Includes account fields not present in the nivedan sheet (role, numberOfReboot, appConfiguration, logoutButton, isOffline, source). SuperAdmin and Developer only.',
   })
-  async downloadTemplate(@Res() res: Response) {
+  async downloadTemplate(
+    @Res() res: Response,
+    @Query() _query: OptionalAdminQueryDto,
+  ) {
     const buffer = await this.accountsService.generateTemplate();
     res.set({
       'Content-Type':

@@ -3,8 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as ExcelJS from 'exceljs';
-import { Account, AccountRole } from './entities/account.entity';
+import { Account, parseAccountRole } from './entities/account.entity';
 import {
+  ACCOUNT_FIELD_DEFAULTS,
   COUNTRY_CODE_TO_NAME,
   TEMPLATE_COLUMNS,
   normalizeHeader,
@@ -189,24 +190,37 @@ export class BulkAccountsUploadService {
       throw new Error('number already exists');
     }
 
-    const role = values.role?.trim();
-    if (role && !Object.values(AccountRole).includes(role as AccountRole)) {
-      throw new Error(
-        `role must be one of: ${Object.values(AccountRole).join(', ')}`,
-      );
-    }
+    const role = parseAccountRole(values.role);
 
     const country = this.resolveCountry(values);
     const numberOfTeams = this.parseOptionalPositiveInt(
       values.numberOfTeams,
       'No. of Teams Expected',
     );
+    const numberOfReboot = this.parseOptionalNonNegativeInt(
+      values.numberOfReboot,
+      'No. of Reboot',
+    );
+    const appConfiguration = this.parseOptionalPositiveInt(
+      values.appConfiguration,
+      'App Configuration',
+    );
+    const logoutButton = this.parseOptionalBoolean(
+      values.logoutButton,
+      'Logout Button',
+    );
+    const isOffline = this.parseOptionalBoolean(values.isOffline, 'Is Offline');
     const kendraType = values.kendraType?.trim();
+    const source = values.source?.trim() || ACCOUNT_FIELD_DEFAULTS.source;
+    const metadata = {
+      source,
+      ...(kendraType ? { kendraType } : {}),
+    };
 
     return this.accountsRepository.create({
       phoneNumber,
-      role: (role as AccountRole) || AccountRole.USER,
-      isOffline: false,
+      role,
+      isOffline: isOffline ?? ACCOUNT_FIELD_DEFAULTS.isOffline,
       country: country ?? null,
       sanghat: values.sanghat?.trim() || null,
       jilha: values.jilha?.trim() || null,
@@ -215,10 +229,11 @@ export class BulkAccountsUploadService {
       kendra: values.kendra?.trim() || null,
       sanchalakName: values.sanchalakName?.trim() || null,
       numberOfTeams: numberOfTeams ?? null,
-      numberOfReboot: 0,
-      logoutButton: false,
-      appConfiguration: 1,
-      metadata: kendraType ? { kendraType } : null,
+      numberOfReboot: numberOfReboot ?? ACCOUNT_FIELD_DEFAULTS.numberOfReboot,
+      logoutButton: logoutButton ?? ACCOUNT_FIELD_DEFAULTS.logoutButton,
+      appConfiguration:
+        appConfiguration ?? ACCOUNT_FIELD_DEFAULTS.appConfiguration,
+      metadata,
     });
   }
 
@@ -370,6 +385,38 @@ export class BulkAccountsUploadService {
       throw new Error(`${fieldName} must be an integer >= 1`);
     }
     return parsed;
+  }
+
+  private parseOptionalNonNegativeInt(
+    raw: string | undefined,
+    fieldName: string,
+  ): number | undefined {
+    const value = raw?.trim().replace(/\.0$/, '');
+    if (!value) {
+      return undefined;
+    }
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error(`${fieldName} must be an integer >= 0`);
+    }
+    return parsed;
+  }
+
+  private parseOptionalBoolean(
+    raw: string | undefined,
+    fieldName: string,
+  ): boolean | undefined {
+    const value = raw?.trim().toLowerCase();
+    if (!value) {
+      return undefined;
+    }
+    if (['true', 'yes', '1', 'y'].includes(value)) {
+      return true;
+    }
+    if (['false', 'no', '0', 'n'].includes(value)) {
+      return false;
+    }
+    throw new Error(`${fieldName} must be true or false`);
   }
 
   private cellToString(value: ExcelJS.CellValue): string {

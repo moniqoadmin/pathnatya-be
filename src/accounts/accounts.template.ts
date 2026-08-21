@@ -1,3 +1,15 @@
+import { AccountRole } from './entities/account.entity';
+
+// Defaults applied when these fields are omitted on create / bulk upload.
+export const ACCOUNT_FIELD_DEFAULTS = {
+  role: AccountRole.USER,
+  numberOfReboot: 0,
+  appConfiguration: 1,
+  logoutButton: false,
+  isOffline: true,
+  source: 'curl',
+} as const;
+
 // Columns used for the bulk-upload Excel template. The `header` is what the
 // user sees in the downloaded file; `field` maps to the account property (or a
 // derived value such as countryCode / kendraType). `aliases` are normalized
@@ -18,7 +30,12 @@ export interface TemplateColumn {
     | 'countryCode'
     | 'phoneNumber'
     | 'numberOfTeams'
-    | 'role';
+    | 'role'
+    | 'numberOfReboot'
+    | 'appConfiguration'
+    | 'logoutButton'
+    | 'isOffline'
+    | 'source';
   aliases: string[];
 }
 
@@ -109,6 +126,36 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
     header: 'role',
     field: 'role',
     aliases: ['role'],
+  },
+  {
+    header: 'No. of Reboot',
+    field: 'numberOfReboot',
+    aliases: [
+      'no. of reboot',
+      'no of reboot',
+      'number of reboot',
+      'numberofreboot',
+    ],
+  },
+  {
+    header: 'App Configuration',
+    field: 'appConfiguration',
+    aliases: ['app configuration', 'appconfiguration'],
+  },
+  {
+    header: 'Logout Button',
+    field: 'logoutButton',
+    aliases: ['logout button', 'logoutbutton'],
+  },
+  {
+    header: 'Is Offline',
+    field: 'isOffline',
+    aliases: ['is offline', 'isoffline', 'offline'],
+  },
+  {
+    header: 'Source',
+    field: 'source',
+    aliases: ['source'],
   },
 ];
 

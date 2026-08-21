@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
@@ -10,7 +10,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { AccountRole } from '../entities/account.entity';
+import { AccountRole, parseAccountRole } from '../entities/account.entity';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
 
 export class CreateAccountDto {
@@ -71,15 +71,20 @@ export class CreateAccountDto {
     enum: AccountRole,
     default: AccountRole.USER,
     description:
-      'Account role. Defaults to User when omitted. Only SuperAdmin and Developer may set this; Admins always create User accounts.',
+      'Account role. User, SuperAdmin, Admin, or Developer (case-insensitive). Anything else defaults to User. Only SuperAdmin and Developer may set this; Admins always create User accounts.',
   })
   @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : parseAccountRole(value),
+  )
   @IsEnum(AccountRole)
   role?: AccountRole;
 
   @ApiPropertyOptional({
-    example: false,
-    default: false,
+    example: true,
+    default: true,
     description: 'Whether this account is offline-only.',
   })
   @IsOptional()
@@ -130,7 +135,8 @@ export class CreateAccountDto {
 
   @ApiPropertyOptional({
     example: { source: 'curl', kendraType: 'pathnatya' },
-    description: 'Arbitrary JSON metadata.',
+    description:
+      'Arbitrary JSON metadata. `source` defaults to "curl" when omitted.',
   })
   @IsOptional()
   @IsObject()

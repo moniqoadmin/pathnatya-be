@@ -15,6 +15,17 @@ export enum AccountRole {
   DEVELOPER = 'Developer',
 }
 
+// Case-insensitive match against the four roles. Unknown / empty → User.
+export function parseAccountRole(raw: unknown): AccountRole {
+  const normalized = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  const match = Object.values(AccountRole).find(
+    (role) => role.toLowerCase() === normalized,
+  );
+  return match ?? AccountRole.USER;
+}
+
 @Entity('accounts')
 export class Account {
   @PrimaryGeneratedColumn('uuid')
@@ -25,7 +36,7 @@ export class Account {
   @Column({ name: 'phone_number', unique: true, length: 20, update: false })
   phoneNumber: string;
 
-  @Column({ name: 'is_offline', type: 'boolean', default: false })
+  @Column({ name: 'is_offline', type: 'boolean', default: true })
   isOffline: boolean;
 
   @Column({

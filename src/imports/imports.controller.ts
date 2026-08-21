@@ -28,6 +28,7 @@ import { AccountRole } from '../accounts/entities/account.entity';
 import { AppKeyGuard } from '../accounts/guards/app-key.guard';
 import { JweAuthGuard } from '../accounts/guards/jwe-auth.guard';
 import { RolesGuard } from '../accounts/guards/roles.guard';
+import { OptionalAdminQueryDto } from '../accounts/dto/optional-admin-query.dto';
 import { AccountImportService } from './account-import.service';
 import { ListImportErrorsQueryDto } from './dto/list-import-errors-query.dto';
 import { ImportQueueService } from './import-queue.service';
@@ -76,6 +77,7 @@ export class ImportsController {
   async status(
     @Param('jobId', ParseUUIDPipe) jobId: string,
     @Req() req: Request,
+    @Query() _query: OptionalAdminQueryDto,
   ) {
     const caller = await this.accounts.findOne(req.user!.sub);
     return this.imports.findOne(jobId, caller.role);

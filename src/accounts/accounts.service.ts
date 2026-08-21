@@ -12,7 +12,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { Account, AccountRole } from './entities/account.entity';
+import { Account, AccountRole, parseAccountRole } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import {
@@ -28,6 +28,7 @@ import { SetPasswordDto } from './dto/set-password.dto';
 import { hashPassword } from './password.util';
 import { JweService } from './jwe.service';
 import {
+  ACCOUNT_FIELD_DEFAULTS,
   COUNTRY_CODE_TO_NAME,
   TEMPLATE_COLUMNS,
   TEMPLATE_SHEET_NAME,
@@ -145,8 +146,8 @@ export class AccountsService {
 
     const account = this.accountsRepository.create({
       phoneNumber: createAccountDto.phoneNumber,
-      role: createAccountDto.role ?? AccountRole.USER,
-      isOffline: createAccountDto.isOffline ?? false,
+      role: createAccountDto.role ?? ACCOUNT_FIELD_DEFAULTS.role,
+      isOffline: createAccountDto.isOffline ?? ACCOUNT_FIELD_DEFAULTS.isOffline,
       country: createAccountDto.country ?? null,
       sanghat: createAccountDto.sanghat ?? null,
       jilha: createAccountDto.jilha ?? null,
@@ -154,11 +155,18 @@ export class AccountsService {
       group: createAccountDto.group ?? null,
       kendra: createAccountDto.kendra ?? null,
       sanchalakName: createAccountDto.sanchalakName ?? null,
-      metadata: createAccountDto.metadata ?? null,
+      metadata: {
+        source: ACCOUNT_FIELD_DEFAULTS.source,
+        ...(createAccountDto.metadata ?? {}),
+      },
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
-      numberOfReboot: createAccountDto.numberOfReboot ?? 0,
-      logoutButton: createAccountDto.logoutButton ?? false,
-      appConfiguration: createAccountDto.appConfiguration ?? 1,
+      numberOfReboot:
+        createAccountDto.numberOfReboot ?? ACCOUNT_FIELD_DEFAULTS.numberOfReboot,
+      logoutButton:
+        createAccountDto.logoutButton ?? ACCOUNT_FIELD_DEFAULTS.logoutButton,
+      appConfiguration:
+        createAccountDto.appConfiguration ??
+        ACCOUNT_FIELD_DEFAULTS.appConfiguration,
     });
     const saved = await this.accountsRepository.save(account);
     saved.teams = [];
@@ -797,12 +805,7 @@ export class AccountsService {
       throw new Error('number already exists');
     }
 
-    const role = values.role?.trim();
-    if (role && !Object.values(AccountRole).includes(role as AccountRole)) {
-      throw new Error(
-        `role must be one of: ${Object.values(AccountRole).join(', ')}`,
-      );
-    }
+    const role = parseAccountRole(values.role);
 
     const country = this.resolveCountry(values);
 
@@ -810,14 +813,33 @@ export class AccountsService {
       values.numberOfTeams,
       'No. of Teams Expected',
     );
-
+    const numberOfReboot = this.parseOptionalNonNegativeInt(
+      values.numberOfReboot,
+      'No. of Reboot',
+    );
+    const appConfiguration = this.parseOptionalPositiveInt(
+      values.appConfiguration,
+      'App Configuration',
+    );
+    const logoutButton = this.parseOptionalBoolean(
+      values.logoutButton,
+      'Logout Button',
+    );
+    const isOffline = this.parseOptionalBoolean(values.isOffline, 'Is Offline');
     const kendraType = values.kendraType?.trim();
-    const metadata = kendraType ? { kendraType } : undefined;
+    const source = values.source?.trim();
+    const metadata =
+      kendraType || source
+        ? {
+            ...(kendraType ? { kendraType } : {}),
+            ...(source ? { source } : {}),
+          }
+        : undefined;
 
     await this.create({
       phoneNumber,
-      role: (role as AccountRole) || AccountRole.USER,
-      isOffline: false,
+      role,
+      isOffline,
       country,
       sanghat: values.sanghat?.trim() || undefined,
       jilha: values.jilha?.trim() || undefined,
@@ -826,6 +848,9 @@ export class AccountsService {
       kendra: values.kendra?.trim() || undefined,
       sanchalakName: values.sanchalakName?.trim() || undefined,
       numberOfTeams,
+      numberOfReboot,
+      logoutButton,
+      appConfiguration,
       metadata,
     });
 
@@ -929,6 +954,38 @@ export class AccountsService {
       throw new Error(`${fieldName} must be an integer >= 1`);
     }
     return parsed;
+  }
+
+  private parseOptionalNonNegativeInt(
+    raw: string | undefined,
+    fieldName: string,
+  ): number | undefined {
+    const value = raw?.trim().replace(/\.0$/, '');
+    if (!value) {
+      return undefined;
+    }
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error(`${fieldName} must be an integer >= 0`);
+    }
+    return parsed;
+  }
+
+  private parseOptionalBoolean(
+    raw: string | undefined,
+    fieldName: string,
+  ): boolean | undefined {
+    const value = raw?.trim().toLowerCase();
+    if (!value) {
+      return undefined;
+    }
+    if (['true', 'yes', '1', 'y'].includes(value)) {
+      return true;
+    }
+    if (['false', 'no', '0', 'n'].includes(value)) {
+      return false;
+    }
+    throw new Error(`${fieldName} must be true or false`);
   }
 
   private cellToString(value: ExcelJS.CellValue): string {
