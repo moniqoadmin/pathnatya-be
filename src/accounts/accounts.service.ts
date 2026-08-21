@@ -35,6 +35,7 @@ import { JweService } from './jwe.service';
 import {
   ACCOUNT_FIELD_DEFAULTS,
   COUNTRY_CODE_TO_NAME,
+  CREATE_TEMPLATE_COLUMNS,
   TEMPLATE_COLUMNS,
   TEMPLATE_SHEET_NAME,
   normalizeHeader,
@@ -814,7 +815,7 @@ export class AccountsService {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(TEMPLATE_SHEET_NAME);
 
-    sheet.columns = TEMPLATE_COLUMNS.map((column) => ({
+    sheet.columns = CREATE_TEMPLATE_COLUMNS.map((column) => ({
       header: column.header,
       key: column.field,
       width: Math.max(18, Math.min(36, column.header.length + 4)),

@@ -12,6 +12,7 @@ import { BulkAccountsUploadService } from '../accounts/bulk-accounts-upload.serv
 import { AccountImportJobError } from './entities/account-import-job-error.entity';
 import {
   AccountImportJob,
+  AccountImportJobKind,
   AccountImportJobStatus,
 } from './entities/account-import-job.entity';
 import { ListImportErrorsQueryDto } from './dto/list-import-errors-query.dto';
@@ -28,12 +29,17 @@ export class AccountImportService {
     private readonly config: ConfigService,
   ) {}
 
-  async create(file: Express.Multer.File, requestedBy: string) {
+  async create(
+    file: Express.Multer.File,
+    requestedBy: string,
+    kind: AccountImportJobKind = AccountImportJobKind.UPLOAD,
+  ) {
     this.validateFile(file);
     await this.cleanupOldJobs();
     const job = await this.jobs.save(
       this.jobs.create({
         status: AccountImportJobStatus.QUEUED,
+        kind,
         fileName: file.originalname,
         fileSize: file.size,
         fileData: file.buffer,
@@ -58,12 +64,16 @@ export class AccountImportService {
     });
   }
 
-  async findAll(role: AccountRole, query: ListImportJobsQueryDto) {
+  async findAll(
+    role: AccountRole,
+    query: ListImportJobsQueryDto,
+    kind: AccountImportJobKind = AccountImportJobKind.UPLOAD,
+  ) {
     this.assertCanRead(role);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const [data, total] = await this.jobs.findAndCount({
-      where: query.status ? { status: query.status } : {},
+      where: query.status ? { kind, status: query.status } : { kind },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -77,8 +87,12 @@ export class AccountImportService {
     };
   }
 
-  async findOne(id: string, role: AccountRole) {
-    const job = await this.jobs.findOne({ where: { id } });
+  async findOne(
+    id: string,
+    role: AccountRole,
+    kind: AccountImportJobKind = AccountImportJobKind.UPLOAD,
+  ) {
+    const job = await this.jobs.findOne({ where: { id, kind } });
     if (!job) throw new NotFoundException('Import job not found');
     this.assertCanRead(role);
     return job;
@@ -88,8 +102,9 @@ export class AccountImportService {
     id: string,
     role: AccountRole,
     query: ListImportErrorsQueryDto,
+    kind: AccountImportJobKind = AccountImportJobKind.UPLOAD,
   ) {
-    await this.findOne(id, role);
+    await this.findOne(id, role, kind);
     const [data, total] = await this.errors.findAndCount({
       where: { jobId: id },
       order: { rowNumber: 'ASC' },
@@ -131,16 +146,26 @@ export class AccountImportService {
     }
 
     try {
-      const result = await this.uploader.bulkUpload(
-        job.fileData,
-        async (progress) => {
-          await this.jobs.update(id, {
-            totalRows: progress.totalRows,
-            createdCount: progress.created,
-            failedCount: progress.failed,
-          });
-        },
-      );
+      const result =
+        job.kind === AccountImportJobKind.UPDATE_TEAMS
+          ? await this.uploader.bulkUpdateTeamNumbers(
+              job.fileData,
+              async (progress) => {
+                await this.jobs.update(id, {
+                  totalRows: progress.totalRows,
+                  createdCount: progress.updated,
+                  failedCount: progress.failed,
+                });
+              },
+            )
+          : await this.uploader.bulkUpload(job.fileData, async (progress) => {
+              await this.jobs.update(id, {
+                totalRows: progress.totalRows,
+                createdCount: progress.created,
+                failedCount: progress.failed,
+              });
+            });
+      const succeeded = 'updated' in result ? result.updated : result.created;
       if (result.errors.length > 0) {
         for (let start = 0; start < result.errors.length; start += 500) {
           await this.errors.insert(
@@ -164,7 +189,7 @@ export class AccountImportService {
       await this.jobs.update(id, {
         status: AccountImportJobStatus.COMPLETED,
         totalRows: result.totalRows,
-        createdCount: result.created,
+        createdCount: succeeded,
         failedCount: result.failed,
         fileData: null,
         completedAt: new Date(),
@@ -212,10 +237,7 @@ export class AccountImportService {
   }
 
   private assertCanRead(role: AccountRole): void {
-    if (
-      role !== AccountRole.SUPER_ADMIN &&
-      role !== AccountRole.DEVELOPER
-    ) {
+    if (role !== AccountRole.SUPER_ADMIN && role !== AccountRole.DEVELOPER) {
       throw new ForbiddenException('You cannot access this import job');
     }
   }

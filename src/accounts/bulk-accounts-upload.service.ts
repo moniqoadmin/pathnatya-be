@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as ExcelJS from 'exceljs';
 import { Account, parseAccountRole } from './entities/account.entity';
+import { Team } from './entities/team.entity';
 import {
   ACCOUNT_FIELD_DEFAULTS,
   COUNTRY_CODE_TO_NAME,
@@ -33,10 +34,24 @@ export interface BulkUploadResult {
   errors: BulkUploadError[];
 }
 
+export interface BulkUpdateTeamsResult {
+  totalRows: number;
+  updated: number;
+  failed: number;
+  errors: BulkUploadError[];
+}
+
 type PendingAccount = {
   rowNumber: number;
   values: Record<string, string>;
   account: Account;
+};
+
+type PendingTeamUpdate = {
+  rowNumber: number;
+  values: Record<string, string>;
+  account: Account;
+  numberOfTeams: number;
 };
 
 @Injectable()
@@ -46,6 +61,8 @@ export class BulkAccountsUploadService {
   constructor(
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
+    @InjectRepository(Team)
+    private readonly teamsRepository: Repository<Team>,
   ) {}
 
   async bulkUpload(
@@ -129,6 +146,109 @@ export class BulkAccountsUploadService {
     return result;
   }
 
+  async bulkUpdateTeamNumbers(
+    buffer: Buffer,
+    onProgress?: (result: BulkUpdateTeamsResult) => Promise<void>,
+  ): Promise<BulkUpdateTeamsResult> {
+    const workbook = new ExcelJS.Workbook();
+    try {
+      await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+    } catch {
+      throw new BadRequestException('Could not read the uploaded Excel file');
+    }
+
+    const { sheet, headerRowNumber, fieldToColumn } =
+      this.findUploadSheet(workbook);
+    const hasUpdatedColumn = fieldToColumn.has('updatedNumberOfTeams');
+
+    const existingAccounts = await this.accountsRepository.find({
+      select: ['id', 'phoneNumber', 'numberOfTeams'],
+    });
+    const accountsByPhone = new Map(
+      existingAccounts.map((account) => [account.phoneNumber, account]),
+    );
+
+    const result: BulkUpdateTeamsResult = {
+      totalRows: 0,
+      updated: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    const pending: PendingTeamUpdate[] = [];
+    const seenPhones = new Set<string>();
+
+    for (
+      let rowNumber = headerRowNumber + 1;
+      rowNumber <= sheet.rowCount;
+      rowNumber++
+    ) {
+      const row = sheet.getRow(rowNumber);
+      const values = TEMPLATE_COLUMNS.reduce<Record<string, string>>(
+        (acc, column) => {
+          const colIndex = fieldToColumn.get(column.field);
+          acc[column.field] = colIndex
+            ? this.cellToString(row.getCell(colIndex).value)
+            : '';
+          return acc;
+        },
+        {},
+      );
+
+      if (Object.values(values).every((value) => value === '')) {
+        continue;
+      }
+
+      result.totalRows += 1;
+
+      try {
+        const phoneNumber = this.normalizePhone(values.phoneNumber);
+        if (!phoneNumber) {
+          throw new Error('Mobile Number is missing');
+        }
+        if (!isSupportedPhoneNumber(phoneNumber)) {
+          throw new Error('phone number is not 10 digits');
+        }
+        if (seenPhones.has(phoneNumber)) {
+          throw new Error('duplicate mobile number in file');
+        }
+
+        const account = accountsByPhone.get(phoneNumber);
+        if (!account) {
+          throw new Error('number does not exist');
+        }
+
+        const teamRaw = hasUpdatedColumn
+          ? values.updatedNumberOfTeams
+          : values.numberOfTeams;
+        const numberOfTeams = this.parseRequiredPositiveInt(teamRaw);
+
+        seenPhones.add(phoneNumber);
+        pending.push({ rowNumber, values, account, numberOfTeams });
+      } catch (error) {
+        result.failed += 1;
+        result.errors.push(
+          this.buildRowError(rowNumber, values, this.toErrorMessage(error)),
+        );
+      }
+    }
+
+    for (
+      let start = 0;
+      start < pending.length;
+      start += BulkAccountsUploadService.BATCH_SIZE
+    ) {
+      const batch = pending.slice(
+        start,
+        start + BulkAccountsUploadService.BATCH_SIZE,
+      );
+      await this.updateTeamNumbersBatch(batch, result);
+      await onProgress?.({ ...result, errors: [] });
+    }
+
+    return result;
+  }
+
   private async insertBatch(
     batch: PendingAccount[],
     result: BulkUploadResult,
@@ -173,6 +293,98 @@ export class BulkAccountsUploadService {
         }
       }
     }
+  }
+
+  private async updateTeamNumbersBatch(
+    batch: PendingTeamUpdate[],
+    result: BulkUpdateTeamsResult,
+  ): Promise<void> {
+    if (batch.length === 0) {
+      return;
+    }
+
+    const accountsById = new Map(
+      batch.map((item) => [item.account.id, item.account]),
+    );
+    const teams = await this.teamsRepository.find({
+      where: { accountId: In([...accountsById.keys()]) },
+      order: { teamNumber: 'ASC' },
+    });
+    for (const account of accountsById.values()) {
+      account.teams = [];
+    }
+    for (const team of teams) {
+      const account = accountsById.get(team.accountId);
+      if (account) {
+        account.teams.push(team);
+      }
+    }
+
+    const toSave: PendingTeamUpdate[] = [];
+    const toRemove: Team[] = [];
+
+    for (const item of batch) {
+      try {
+        toRemove.push(
+          ...this.teamsToRemoveForCount(item.account, item.numberOfTeams),
+        );
+        toSave.push(item);
+      } catch (error) {
+        result.failed += 1;
+        result.errors.push(
+          this.buildRowError(
+            item.rowNumber,
+            item.values,
+            this.toErrorMessage(error),
+          ),
+        );
+      }
+    }
+
+    if (toSave.length === 0) {
+      return;
+    }
+
+    await this.accountsRepository.manager.transaction(async (manager) => {
+      for (const item of toSave) {
+        await manager.update(Account, item.account.id, {
+          numberOfTeams: item.numberOfTeams,
+        });
+      }
+      const persisted = toRemove.filter((team) => team.id);
+      if (persisted.length > 0) {
+        await manager.remove(Team, persisted);
+      }
+    });
+    result.updated += toSave.length;
+  }
+
+  private teamsToRemoveForCount(account: Account, newCount: number): Team[] {
+    const registered = (account.teams ?? []).filter(
+      (team) => team.systemAddress || team.passwordHash,
+    );
+    if (registered.length > newCount) {
+      throw new Error(
+        `numberOfTeams cannot be less than the ${registered.length} registered team(s)`,
+      );
+    }
+
+    return (account.teams ?? []).filter(
+      (team) =>
+        team.teamNumber > newCount && !team.systemAddress && !team.passwordHash,
+    );
+  }
+
+  private parseRequiredPositiveInt(raw: string | undefined): number {
+    const value = raw?.trim().replace(/\.0$/, '');
+    if (!value) {
+      throw new Error('team number is not a valid number');
+    }
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new Error('team number is not a valid number');
+    }
+    return parsed;
   }
 
   private buildAccountFromRow(

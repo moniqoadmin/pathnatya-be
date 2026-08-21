@@ -30,6 +30,7 @@ export interface TemplateColumn {
     | 'countryCode'
     | 'phoneNumber'
     | 'numberOfTeams'
+    | 'updatedNumberOfTeams'
     | 'role'
     | 'numberOfReboot'
     | 'appConfiguration'
@@ -58,7 +59,14 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
   {
     header: 'Jilla Name',
     field: 'jilha',
-    aliases: ['jilla name', 'jilha name', 'zilla name', 'jilla', 'jilha', 'zilla'],
+    aliases: [
+      'jilla name',
+      'jilha name',
+      'zilla name',
+      'jilla',
+      'jilha',
+      'zilla',
+    ],
   },
   {
     header: 'Taluka Name',
@@ -123,6 +131,18 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
     ],
   },
   {
+    // Present on nivedan sheets for bulk team-number updates. Not included in
+    // the downloaded create template (see generateTemplate).
+    header: 'Updated No. of Teams Expected',
+    field: 'updatedNumberOfTeams',
+    aliases: [
+      'updated no. of teams expected',
+      'updated no of teams expected',
+      'updated number of teams',
+      'updated number of teams expected',
+    ],
+  },
+  {
     header: 'role',
     field: 'role',
     aliases: ['role'],
@@ -160,6 +180,10 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
 ];
 
 export const TEMPLATE_SHEET_NAME = 'accounts';
+
+// Create-template columns omit the nivedan-only "Updated No. of Teams Expected".
+export const CREATE_TEMPLATE_COLUMNS: TemplateColumn[] =
+  TEMPLATE_COLUMNS.filter((column) => column.field !== 'updatedNumberOfTeams');
 
 // Collapse newlines / extra spaces and lowercase for header matching.
 export function normalizeHeader(header: string): string {

@@ -16,6 +16,11 @@ export enum AccountImportJobStatus {
   FAILED = 'failed',
 }
 
+export enum AccountImportJobKind {
+  UPLOAD = 'upload',
+  UPDATE_TEAMS = 'update_teams',
+}
+
 @Entity('account_import_jobs')
 export class AccountImportJob {
   @PrimaryGeneratedColumn('uuid')
@@ -23,6 +28,13 @@ export class AccountImportJob {
 
   @Column({ type: 'enum', enum: AccountImportJobStatus })
   status: AccountImportJobStatus;
+
+  @Column({
+    type: 'varchar',
+    length: 32,
+    default: AccountImportJobKind.UPLOAD,
+  })
+  kind: AccountImportJobKind;
 
   @Column({ name: 'file_name', length: 255 })
   fileName: string;

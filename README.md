@@ -52,7 +52,9 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 - Download an `.xlsx` template (`GET /api/accounts/bulk/template`). SuperAdmin and Developer only.
 - Upload a filled sheet (`POST /api/accounts/bulk/upload`, multipart field `file`, max 20 MB). SuperAdmin and Developer only. Role and sanghat in the sheet are applied as given.
+- Update team counts for existing accounts (`POST /api/accounts/bulk/teams`, same Excel format). Phone numbers must already exist; missing phones and invalid team numbers are per-row errors. Uses **Updated No. of Teams Expected** when that column is present, otherwise **No. of Teams Expected**.
 - List import jobs (`GET /api/accounts/bulk/upload`, paginated, optional `status`). SuperAdmin and Developer only.
+- List team-number update jobs (`GET /api/accounts/bulk/teams`, paginated, optional `status`). SuperAdmin and Developer only.
 - In-process queue (`IMPORT_QUEUE_CONCURRENCY`) with job status: `queued` → `processing` → `completed` / `failed`.
 - Per-row errors stored and listed with pagination. Duplicate / invalid phones are skipped, not fatal.
 - Template columns include country, sanghat, jilha, taluka, group, kendra type/name, sanchalak, country code (`91` / `44` / `1`), mobile number, expected team count, and role.
@@ -226,6 +228,10 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | GET | `/accounts/bulk/upload` | token | Paginated import jobs (`page`, `limit`, `status`). SuperAdmin / Developer |
 | GET | `/accounts/bulk/upload/:jobId` | token | Import job status. SuperAdmin / Developer |
 | GET | `/accounts/bulk/upload/:jobId/errors` | token | Paginated row errors. SuperAdmin / Developer |
+| POST | `/accounts/bulk/teams` | token | Queue Excel team-number update (`202`, `{ jobId, status }`). SuperAdmin / Developer |
+| GET | `/accounts/bulk/teams` | token | Paginated team-number update jobs (`page`, `limit`, `status`). SuperAdmin / Developer |
+| GET | `/accounts/bulk/teams/:jobId` | token | Team-number update job status (`createdCount` = accounts updated). SuperAdmin / Developer |
+| GET | `/accounts/bulk/teams/:jobId/errors` | token | Paginated row errors. SuperAdmin / Developer |
 
 ### Issues
 
