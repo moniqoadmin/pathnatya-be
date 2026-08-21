@@ -128,12 +128,17 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Set or reset the password for this device team (matched by ipAddress / MAC). Optional metadata is stored on that team. Creates a team when this is a new IP and the account is under its team cap. Returns the account plus the teamNumber that was created or matched.',
+      'Set or reset the password for this device team (matched by ipAddress / MAC). Optional metadata is stored on that team. Creates a team when this is a new IP and the account is under its team cap. Returns the account plus the teamNumber that was created or matched. When admin=true, ipAddress matching is skipped and the system address is not saved.',
   })
-  setPassword(@Body() setPasswordDto: SetPasswordDto, @Ip() ipAddress: string) {
+  setPassword(
+    @Body() setPasswordDto: SetPasswordDto,
+    @Query() query: OptionalAdminQueryDto,
+    @Ip() ipAddress: string,
+  ) {
     return this.accountsService.setPassword(
       setPasswordDto,
       setPasswordDto.ipAddress ?? ipAddress,
+      query.admin === true,
     );
   }
 

@@ -828,6 +828,7 @@ export class AccountsService {
   async setPassword(
     setPasswordDto: SetPasswordDto,
     ipAddress?: string | null,
+    admin = false,
   ): Promise<SetPasswordResponse> {
     const account = await this.findAccountByPhone(setPasswordDto.phoneNumber);
     if (!account) {
@@ -835,18 +836,20 @@ export class AccountsService {
     }
 
     const resolvedIp = setPasswordDto.ipAddress ?? ipAddress ?? null;
-    const team = await this.getOrCreateTeamForDevice(
-      account,
-      resolvedIp,
-      'set-password',
-    );
+    const team = admin
+      ? await this.getOrCreateTeamForAdminSetPassword(account)
+      : await this.getOrCreateTeamForDevice(
+          account,
+          resolvedIp,
+          'set-password',
+        );
     if (team.isLoginDisabled) {
       throw new ForbiddenException(LOGIN_DISABLED_MESSAGE);
     }
 
     team.passwordHash = await hashPassword(setPasswordDto.password);
     team.setPassword = false;
-    if (resolvedIp) {
+    if (!admin && resolvedIp) {
       team.systemAddress = resolvedIp;
     }
     if (setPasswordDto.metadata !== undefined) {
@@ -1554,6 +1557,30 @@ export class AccountsService {
     return account.teams.find(
       (team) => team.systemAddress?.trim().toLowerCase() === normalized,
     );
+  }
+
+  /** Admin UI: pick a team without binding a device MAC. */
+  private async getOrCreateTeamForAdminSetPassword(
+    account: Account,
+  ): Promise<Team> {
+    const needsPassword = account.teams.find(
+      (team) =>
+        !team.isLoginDisabled && (team.setPassword || !team.passwordHash),
+    );
+    if (needsPassword) {
+      return needsPassword;
+    }
+
+    const available = account.teams.find((team) => !team.isLoginDisabled);
+    if (available) {
+      return available;
+    }
+
+    if (account.teams.length >= this.maxTeams(account)) {
+      throw new ForbiddenException(SYSTEM_ADDRESS_SET_PASSWORD_LIMIT_MESSAGE);
+    }
+
+    return this.createTeamForDevice(account, null);
   }
 
   // Teams are created when a new device IP first calls set-password,
