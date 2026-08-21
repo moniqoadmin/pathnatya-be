@@ -47,6 +47,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - Account flags consumed by the Electron app: `isOffline`, `logoutButton`, `numberOfReboot`, `appConfiguration`.
 - `GET /api/accounts/login-token` returns six `LOGIN_SUCCESS_KEY_*` values used after a successful login.
 - `GET /api/accounts/roles` lists role names.
+- **Login analytics** (`GET /api/accounts/analytics`): SuperAdmin / Developer counts of teams and accounts that have logged in (`lastLoginTime` set). Optional `sanghat` and `since` (ISO-8601) filters; also returns `totalAccounts` and `totalTeams`. Cached in process memory for 3 hours per sanghat + since combination (no Redis).
 
 ### Bulk account import
 
@@ -176,7 +177,7 @@ Almost every route needs:
 | --- | --- |
 | `User` | Own account, own teams, own issues/comments, own logs, read config |
 | `Admin` | Users in the same sanghat: create, list, get, delete, edit a limited field set, report issues for those users |
-| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), issue inbox, resolve issues, write app configurations |
+| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), login analytics, issue inbox, resolve issues, write app configurations |
 
 ## Payload encryption
 
@@ -217,6 +218,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | POST | `/accounts/login` | app key | Login; `?admin=true` → 2h token, no device bind |
 | GET | `/accounts/login-token` | token | Six login success keys |
 | GET | `/accounts/roles` | token | Role names |
+| GET | `/accounts/analytics` | token | Login counts (`teamsLoggedIn`, `accountsLoggedIn`, `totalTeams`, `totalAccounts`). Optional `sanghat`, `since`. Cached 3h in process memory per sanghat + since. SuperAdmin / Developer |
 | GET | `/accounts` | token | Paginated list (`page`, `limit`, `search`, `role`, `sanghat`, `admin`) |
 | GET | `/accounts/:id` | token | Get one account (own, or role-scoped) |
 | PATCH | `/accounts/:id` | token | Update account (role-scoped) |
@@ -299,4 +301,4 @@ Entities are auto-loaded (`autoLoadEntities: true`). With `DB_SYNCHRONIZE=true`,
 - Keep `PAYLOAD_ENCRYPTION=true` for the Electron client.
 - Leave `LOAD_TEST_KEY` unset.
 - Prefer the private Postgres URL on the same network (`DB_SSL=false`); use the public proxy + SSL from outside.
-- Import jobs and login-failure counters live in process memory / this instance’s queue — they are not shared across multiple replicas.
+- Import jobs, login-failure counters, and login-analytics cache live in process memory / this instance’s queue — they are not shared across multiple replicas.

@@ -17,6 +17,7 @@ import { AppKeyGuard } from './guards/app-key.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
+import { AppCacheService } from '../config/app-cache.service';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { PasswordVerificationService } from './password-verification.service';
     RolesGuard,
     LoginProtectionService,
     PasswordVerificationService,
+    AppCacheService,
   ],
   exports: [
     TypeOrmModule,

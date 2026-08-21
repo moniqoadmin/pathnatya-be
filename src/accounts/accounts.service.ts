@@ -26,6 +26,7 @@ import {
 } from './account-authorization';
 import { BulkUpdateFlagsDto } from './dto/bulk-update-flags.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
+import { LoginAnalyticsQueryDto } from './dto/login-analytics-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { PatchTeamDto, UpdateTeamDto } from './dto/update-team.dto';
 import { LoginDto } from './dto/login.dto';
@@ -47,6 +48,11 @@ import {
   AuditTrailService,
   USER_ENABLED_EVENT,
 } from '../audit-trail/audit-trail.service';
+import { AppCacheService } from '../config/app-cache.service';
+import {
+  CACHE_TTL_LOGIN_ANALYTICS_MS,
+  loginAnalyticsCacheKeys,
+} from '../config/cache.config';
 
 export type TeamResponse = Omit<Team, 'passwordHash' | 'account'>;
 
@@ -122,6 +128,13 @@ export type SanghatsResponse = {
   sanghats: string[];
 };
 
+export type LoginAnalyticsResponse = {
+  accountsLoggedIn: number;
+  teamsLoggedIn: number;
+  totalAccounts: number;
+  totalTeams: number;
+};
+
 export type BulkUpdateFlagsError = {
   phoneNumber: string;
   kendra: string | null;
@@ -163,6 +176,7 @@ export class AccountsService {
     private readonly passwordVerification: PasswordVerificationService,
     @Inject(forwardRef(() => AuditTrailService))
     private readonly auditTrailService: AuditTrailService,
+    private readonly cache: AppCacheService,
   ) {}
 
   async createForCaller(
@@ -296,6 +310,73 @@ export class AccountsService {
       .getRawMany<{ sanghat: string }>();
 
     return { sanghats: rows.map((row) => row.sanghat) };
+  }
+
+  async getLoginAnalytics(
+    query: LoginAnalyticsQueryDto,
+  ): Promise<LoginAnalyticsResponse> {
+    const sanghat = query.sanghat?.trim() || '';
+    const since = query.since?.trim() || '';
+    const cacheKey = loginAnalyticsCacheKeys.one(
+      sanghat.toLowerCase() || '*',
+      since || '*',
+    );
+    const cached = await this.cache.get<LoginAnalyticsResponse>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const result = await this.loadLoginAnalytics(sanghat, since);
+    await this.cache.set(cacheKey, result, CACHE_TTL_LOGIN_ANALYTICS_MS);
+    return result;
+  }
+
+  private async loadLoginAnalytics(
+    sanghat: string,
+    sinceRaw: string,
+  ): Promise<LoginAnalyticsResponse> {
+    const since = sinceRaw ? new Date(sinceRaw) : undefined;
+    const loggedInCondition = since
+      ? 'team.last_login_time IS NOT NULL AND team.last_login_time >= :since'
+      : 'team.last_login_time IS NOT NULL';
+
+    const qb = this.accountsRepository
+      .createQueryBuilder('account')
+      .leftJoin('account.teams', 'team')
+      .select('COUNT(DISTINCT account.id)', 'totalAccounts')
+      .addSelect('COUNT(team.id)', 'totalTeams')
+      .addSelect(
+        `COUNT(team.id) FILTER (WHERE ${loggedInCondition})`,
+        'teamsLoggedIn',
+      )
+      .addSelect(
+        `COUNT(DISTINCT team.account_id) FILTER (WHERE ${loggedInCondition})`,
+        'accountsLoggedIn',
+      );
+
+    if (sanghat) {
+      qb.andWhere(
+        'LOWER(BTRIM(account.sanghat)) = LOWER(BTRIM(:sanghatFilter))',
+        { sanghatFilter: sanghat },
+      );
+    }
+    if (since) {
+      qb.setParameter('since', since);
+    }
+
+    const row = await qb.getRawOne<{
+      totalAccounts: string | number | null;
+      totalTeams: string | number | null;
+      teamsLoggedIn: string | number | null;
+      accountsLoggedIn: string | number | null;
+    }>();
+
+    return {
+      accountsLoggedIn: Number(row?.accountsLoggedIn ?? 0),
+      teamsLoggedIn: Number(row?.teamsLoggedIn ?? 0),
+      totalAccounts: Number(row?.totalAccounts ?? 0),
+      totalTeams: Number(row?.totalTeams ?? 0),
+    };
   }
 
   async bulkUpdateFlags(

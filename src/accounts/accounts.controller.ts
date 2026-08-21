@@ -30,6 +30,7 @@ import { BulkFlagsJobService } from './bulk-flags-job.service';
 import { BulkFlagsQueueService } from './bulk-flags-queue.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
+import { LoginAnalyticsQueryDto } from './dto/login-analytics-query.dto';
 import { BulkUpdateFlagsDto } from './dto/bulk-update-flags.dto';
 import { ListBulkFlagErrorsQueryDto } from './dto/list-bulk-flag-errors-query.dto';
 import { ListBulkFlagJobsQueryDto } from './dto/list-bulk-flag-jobs-query.dto';
@@ -184,6 +185,16 @@ export class AccountsController {
   })
   listSanghats() {
     return this.accountsService.listSanghats();
+  }
+
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Get('analytics')
+  @ApiOperation({
+    summary:
+      'Login counts for SuperAdmin and Developer. teamsLoggedIn is teams with lastLoginTime set; accountsLoggedIn is distinct accounts with at least one such team. Optional sanghat filter and since (ISO-8601) to count only logins at or after that time. Also returns totalAccounts and totalTeams. Cached in process memory for 3 hours per sanghat + since combination.',
+  })
+  getLoginAnalytics(@Query() query: LoginAnalyticsQueryDto) {
+    return this.accountsService.getLoginAnalytics(query);
   }
 
   @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
