@@ -191,7 +191,7 @@ export class AccountsController {
   @Get('analytics')
   @ApiOperation({
     summary:
-      'Login counts for SuperAdmin and Developer. teamsLoggedIn is teams with lastLoginTime set; accountsLoggedIn is distinct accounts with at least one such team. Optional sanghat filter and since (ISO-8601) to count only logins at or after that time. Also returns totalAccounts and totalTeams. Cached in process memory for 3 hours per sanghat + since combination.',
+      'Login counts for SuperAdmin and Developer when entitlement SHOW_ANALYTICS is enabled. teamsLoggedIn is teams with lastLoginTime set; accountsLoggedIn is distinct accounts with at least one such team. Optional sanghat filter and since (ISO-8601) to count only logins at or after that time. Also returns totalAccounts and totalTeams. Cached in process memory for 3 hours per sanghat + since combination. Returns 403 when SHOW_ANALYTICS is disabled.',
   })
   getLoginAnalytics(@Query() query: LoginAnalyticsQueryDto) {
     return this.accountsService.getLoginAnalytics(query);

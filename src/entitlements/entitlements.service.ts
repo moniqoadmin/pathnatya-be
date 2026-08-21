@@ -15,6 +15,7 @@ import { Entitlement } from './entities/entitlement.entity';
 import {
   ADMIN_LOGIN_ELECTRON_APP,
   DEFAULT_ENTITLEMENTS,
+  SHOW_ANALYTICS,
 } from './entitlements.constants';
 import { isPrivilegedElectronLoginBlocked } from './entitlements.policy';
 
@@ -23,6 +24,9 @@ export const ENTITLEMENT_UPDATED_EVENT = 'ENTITLEMENT_UPDATED';
 
 const ELECTRON_PRIVILEGED_LOGIN_BLOCKED_MESSAGE =
   'Admin, SuperAdmin, and Developer accounts cannot log in from the Electron app.';
+
+const ANALYTICS_DISABLED_MESSAGE =
+  'Login analytics are disabled. Enable the SHOW_ANALYTICS entitlement to use them.';
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -88,6 +92,13 @@ export class EntitlementsService implements OnModuleInit {
     const allowed = await this.isEnabled(ADMIN_LOGIN_ELECTRON_APP);
     if (isPrivilegedElectronLoginBlocked(role, adminQuery, allowed)) {
       throw new ForbiddenException(ELECTRON_PRIVILEGED_LOGIN_BLOCKED_MESSAGE);
+    }
+  }
+
+  async assertAnalyticsAllowed(): Promise<void> {
+    const allowed = await this.isEnabled(SHOW_ANALYTICS);
+    if (!allowed) {
+      throw new ForbiddenException(ANALYTICS_DISABLED_MESSAGE);
     }
   }
 

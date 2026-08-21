@@ -4,7 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AccountRole } from '../accounts/entities/account.entity';
-import { ADMIN_LOGIN_ELECTRON_APP } from './entitlements.constants';
+import {
+  ADMIN_LOGIN_ELECTRON_APP,
+  SHOW_ANALYTICS,
+} from './entitlements.constants';
 import {
   ENTITLEMENT_CREATED_EVENT,
   ENTITLEMENT_UPDATED_EVENT,
@@ -48,16 +51,42 @@ describe('EntitlementsService', () => {
           key: ADMIN_LOGIN_ELECTRON_APP,
           enabled: true,
         }),
+        expect.objectContaining({
+          key: SHOW_ANALYTICS,
+          enabled: true,
+        }),
       ]),
     );
   });
 
   it('does not overwrite existing default entitlements', async () => {
-    repository.find.mockResolvedValue([{ key: ADMIN_LOGIN_ELECTRON_APP }]);
+    repository.find.mockResolvedValue([
+      { key: ADMIN_LOGIN_ELECTRON_APP },
+      { key: SHOW_ANALYTICS },
+    ]);
 
     await service.seedDefaults();
 
     expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('seeds SHOW_ANALYTICS when that key is missing', async () => {
+    repository.find.mockResolvedValue([{ key: ADMIN_LOGIN_ELECTRON_APP }]);
+    repository.save.mockResolvedValue([]);
+
+    await service.seedDefaults();
+
+    expect(repository.save).toHaveBeenCalledTimes(1);
+    const saved = repository.save.mock.calls[0][0] as Array<{
+      key: string;
+      enabled: boolean;
+    }>;
+    expect(saved).toEqual([
+      expect.objectContaining({
+        key: SHOW_ANALYTICS,
+        enabled: true,
+      }),
+    ]);
   });
 
   it('treats a missing ADMIN_LOGIN_ELECTRON_APP row as enabled', async () => {
@@ -81,6 +110,32 @@ describe('EntitlementsService', () => {
     await expect(
       service.assertElectronLoginAllowed(AccountRole.SUPER_ADMIN, true),
     ).resolves.toBeUndefined();
+  });
+
+  it('treats a missing SHOW_ANALYTICS row as enabled', async () => {
+    repository.findOne.mockResolvedValue(null);
+
+    await expect(service.isEnabled(SHOW_ANALYTICS)).resolves.toBe(true);
+  });
+
+  it('allows analytics when SHOW_ANALYTICS is on', async () => {
+    repository.findOne.mockResolvedValue({
+      key: SHOW_ANALYTICS,
+      enabled: true,
+    });
+
+    await expect(service.assertAnalyticsAllowed()).resolves.toBeUndefined();
+  });
+
+  it('blocks analytics when SHOW_ANALYTICS is off', async () => {
+    repository.findOne.mockResolvedValue({
+      key: SHOW_ANALYTICS,
+      enabled: false,
+    });
+
+    await expect(service.assertAnalyticsAllowed()).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('creates an entitlement and writes an audit-trail entry', async () => {

@@ -41,7 +41,7 @@ export class EntitlementsController {
   @Get()
   @ApiOperation({
     summary:
-      'List feature entitlements. The Electron app reads these flags and adjusts behavior. ADMIN_LOGIN_ELECTRON_APP is seeded enabled by default.',
+      'List feature entitlements. The Electron app and admin dashboard read these flags and adjust behavior. ADMIN_LOGIN_ELECTRON_APP and SHOW_ANALYTICS are seeded enabled by default.',
   })
   findAll(@Query() _query: OptionalAdminQueryDto) {
     return this.entitlementsService.findAll();

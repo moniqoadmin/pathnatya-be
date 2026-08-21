@@ -48,7 +48,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - Account flags consumed by the Electron app: `isOffline`, `logoutButton`, `numberOfReboot`, `appConfiguration`.
 - `GET /api/accounts/login-token` returns six `LOGIN_SUCCESS_KEY_*` values used after a successful login.
 - `GET /api/accounts/roles` lists role names.
-- **Login analytics** (`GET /api/accounts/analytics`): SuperAdmin / Developer counts of teams and accounts that have logged in (`lastLoginTime` set). Optional `sanghat` and `since` (ISO-8601) filters; also returns `totalAccounts` and `totalTeams`. Cached in process memory for 3 hours per sanghat + since combination (no Redis).
+- **Login analytics** (`GET /api/accounts/analytics`): SuperAdmin / Developer counts of teams and accounts that have logged in (`lastLoginTime` set). Optional `sanghat` and `since` (ISO-8601) filters; also returns `totalAccounts` and `totalTeams`. Cached in process memory for 3 hours per sanghat + since combination (no Redis). Gated by entitlement `SHOW_ANALYTICS` (seeded enabled). When that flag is off, the endpoint returns `403` and the admin dashboard should hide analytics.
 
 ### Bulk account import
 
@@ -79,8 +79,8 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 ### Configuration
 
-- **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id. Reads are authenticated; writes are SuperAdmin / Developer only.
-- **Entitlements**: SuperAdmin / Developer feature flags the Electron app can read. `ADMIN_LOGIN_ELECTRON_APP` is seeded **enabled** when the table is created. When it is **true**, Admin / SuperAdmin / Developer may log in with `?admin=true` or `?admin=false`. When it is **false**, those roles may only log in with `?admin=true`; the Electron app accepts User roles only. Creates and updates write an audit-trail entry for the caller.
+- **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id. List, create/replace, and update (including changing `id`) are SuperAdmin / Developer only. Changing a row’s id remaps accounts that pointed at the old id. Get-by-id is authenticated so the Electron app can load the row assigned to an account.
+- **Entitlements**: SuperAdmin / Developer feature flags the Electron app and admin dashboard can read. `ADMIN_LOGIN_ELECTRON_APP` and `SHOW_ANALYTICS` are seeded **enabled** when the table is created (or when a known key is missing). When `ADMIN_LOGIN_ELECTRON_APP` is **true**, Admin / SuperAdmin / Developer may log in with `?admin=true` or `?admin=false`. When it is **false**, those roles may only log in with `?admin=true`; the Electron app accepts User roles only. When `SHOW_ANALYTICS` is **false**, `GET /api/accounts/analytics` returns `403` and the dashboard should hide login analytics. Creates and updates write an audit-trail entry for the caller.
 
 ### Health and ops
 
@@ -179,7 +179,7 @@ Almost every route needs:
 | --- | --- |
 | `User` | Own account, own teams, own issues/comments, own logs, read config |
 | `Admin` | Users in the same sanghat: create, list, get, delete, edit a limited field set, report issues for those users |
-| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), login analytics, issue inbox, resolve issues, write app configurations and entitlements |
+| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), login analytics, issue inbox, resolve issues, get/update app configurations and entitlements |
 
 ## Payload encryption
 
@@ -220,7 +220,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | POST | `/accounts/login` | app key | Login; `?admin=true` → 2h token, no device bind. Privileged Electron login gated by `ADMIN_LOGIN_ELECTRON_APP` |
 | GET | `/accounts/login-token` | token | Six login success keys |
 | GET | `/accounts/roles` | token | Role names |
-| GET | `/accounts/analytics` | token | Login counts (`teamsLoggedIn`, `accountsLoggedIn`, `totalTeams`, `totalAccounts`). Optional `sanghat`, `since`. Cached 3h in process memory per sanghat + since. SuperAdmin / Developer |
+| GET | `/accounts/analytics` | token | Login counts (`teamsLoggedIn`, `accountsLoggedIn`, `totalTeams`, `totalAccounts`). Optional `sanghat`, `since`. Cached 3h in process memory per sanghat + since. SuperAdmin / Developer. Requires entitlement `SHOW_ANALYTICS` |
 | GET | `/accounts` | token | Paginated list (`page`, `limit`, `search`, `role`, `sanghat`, `admin`) |
 | GET | `/accounts/:id` | token | Get one account (own, or role-scoped) |
 | PATCH | `/accounts/:id` | token | Update account (role-scoped) |
@@ -261,14 +261,16 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/app-configurations` | token | List configurations |
-| POST | `/app-configurations` | token | Upsert by numeric `id` (SuperAdmin / Developer) |
+| GET | `/app-configurations` | token | List configurations. SuperAdmin / Developer |
+| GET | `/app-configurations/:id` | token | Get one configuration |
+| POST | `/app-configurations` | token | Create or replace by numeric `id` in the body. SuperAdmin / Developer |
+| PATCH | `/app-configurations/:id` | token | Update `id`, `videoConfig`, and/or `videoFiles`. Changing `id` remaps accounts that pointed at the old id. SuperAdmin / Developer |
 
 ### Entitlements
 
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/entitlements` | token | List flags (Electron app reads these) |
+| GET | `/entitlements` | token | List flags (Electron app and admin dashboard read these, including `SHOW_ANALYTICS`) |
 | GET | `/entitlements/:key` | token | Get one flag |
 | POST | `/entitlements` | token | Add a flag (SuperAdmin / Developer). Audited |
 | PATCH | `/entitlements/:key` | token | Update `enabled` / `description` (SuperAdmin / Developer). Audited |

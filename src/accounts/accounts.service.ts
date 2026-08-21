@@ -321,6 +321,7 @@ export class AccountsService {
   async getLoginAnalytics(
     query: LoginAnalyticsQueryDto,
   ): Promise<LoginAnalyticsResponse> {
+    await this.entitlementsService.assertAnalyticsAllowed();
     const sanghat = query.sanghat?.trim() || '';
     const since = query.since?.trim() || '';
     const cacheKey = loginAnalyticsCacheKeys.one(

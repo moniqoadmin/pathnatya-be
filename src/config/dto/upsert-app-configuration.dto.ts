@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsInt, IsObject, Min } from 'class-validator';
-import { VideoConfig } from '../entities/app-configuration.entity';
+import { Type } from 'class-transformer';
+import { IsArray, IsInt, IsObject, Min, ValidateNested } from 'class-validator';
+import { VideoConfigDto } from './video-config.dto';
 
 export class UpsertAppConfigurationDto {
   @ApiProperty({ example: 1 })
@@ -8,15 +9,11 @@ export class UpsertAppConfigurationDto {
   @Min(1)
   id: number;
 
-  @ApiProperty({
-    example: {
-      DEFAULT_HLS_SOURCE:
-        'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8',
-      ALLOWED_HOSTS: ['pathnatya-video-cdn.b-cdn.net'],
-    },
-  })
+  @ApiProperty({ type: VideoConfigDto })
   @IsObject()
-  videoConfig: VideoConfig;
+  @ValidateNested()
+  @Type(() => VideoConfigDto)
+  videoConfig: VideoConfigDto;
 
   @ApiProperty({ type: [Object], example: [] })
   @IsArray()
