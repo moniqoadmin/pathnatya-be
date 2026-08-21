@@ -108,7 +108,7 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword, role } from that account. Errors if the matching team has isLoginDisabled. When admin=true, ipAddress matching and device-team limits are skipped.',
+      'Check if a phone number has an account. Uses the device ipAddress (MAC) to match a team. Returns { exists, needsPassword, role } from that account. Errors if the matching team has isLoginDisabled. When admin=true, ipAddress matching and device-team limits are skipped. When ADMIN_LOGIN_ELECTRON_APP is false, Admin / SuperAdmin / Developer accounts are rejected unless admin=true.',
   })
   checkPhone(
     @Body() checkPhoneDto: CheckPhoneDto,
@@ -149,7 +149,7 @@ export class AccountsController {
   })
   @ApiOperation({
     summary:
-      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token valid for 5 days (2 hours when admin=true). When admin=true, ipAddress matching, team binding, and device-team limits are skipped.',
+      'Login with phone number + password. The device ipAddress (MAC) selects the team. Returns account, the matching team object, and a JWE token valid for 5 days (2 hours when admin=true). When admin=true, ipAddress matching, team binding, and device-team limits are skipped. When ADMIN_LOGIN_ELECTRON_APP is true, Admin / SuperAdmin / Developer may log in with admin true or false. When false, those roles may only log in with admin=true; the Electron app accepts User roles only.',
   })
   login(
     @Body() loginDto: LoginDto,

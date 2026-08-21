@@ -53,6 +53,7 @@ import {
   CACHE_TTL_LOGIN_ANALYTICS_MS,
   loginAnalyticsCacheKeys,
 } from '../config/cache.config';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 export type TeamResponse = Omit<Team, 'passwordHash' | 'account'>;
 
@@ -176,6 +177,8 @@ export class AccountsService {
     private readonly passwordVerification: PasswordVerificationService,
     @Inject(forwardRef(() => AuditTrailService))
     private readonly auditTrailService: AuditTrailService,
+    @Inject(forwardRef(() => EntitlementsService))
+    private readonly entitlementsService: EntitlementsService,
     private readonly cache: AppCacheService,
   ) {}
 
@@ -776,6 +779,11 @@ export class AccountsService {
       return { exists: false, needsPassword: false };
     }
 
+    await this.entitlementsService.assertElectronLoginAllowed(
+      account.role,
+      admin,
+    );
+
     if (admin) {
       const hasPassword = account.teams.some(
         (team) => team.passwordHash && !team.setPassword,
@@ -871,6 +879,11 @@ export class AccountsService {
       );
       throw new NotFoundException('User not found');
     }
+
+    await this.entitlementsService.assertElectronLoginAllowed(
+      account.role,
+      admin,
+    );
 
     const team = admin
       ? await this.authenticateAdminTeam(account, loginDto, resolvedIp)

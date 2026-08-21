@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditTrailModule } from '../audit-trail/audit-trail.module';
+import { EntitlementsModule } from '../entitlements/entitlements.module';
 import { Account } from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { BulkFlagJob } from './entities/bulk-flag-job.entity';
@@ -23,6 +24,7 @@ import { AppCacheService } from '../config/app-cache.service';
   imports: [
     TypeOrmModule.forFeature([Account, Team, BulkFlagJob, BulkFlagJobError]),
     forwardRef(() => AuditTrailModule),
+    forwardRef(() => EntitlementsModule),
   ],
   controllers: [AccountsController, TeamsController, TeamItemController],
   providers: [

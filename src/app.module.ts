@@ -18,6 +18,7 @@ import { VideosModule } from './videos/videos.module';
 import { IssuesModule } from './issues/issues.module';
 import { ImportsModule } from './imports/imports.module';
 import { AuditTrailModule } from './audit-trail/audit-trail.module';
+import { EntitlementsModule } from './entitlements/entitlements.module';
 
 function loadTestKeyMatches(
   provided: string | string[] | undefined,
@@ -79,6 +80,7 @@ function loadTestKeyMatches(
     IssuesModule,
     ImportsModule,
     AuditTrailModule,
+    EntitlementsModule,
   ],
   controllers: [AppController],
   providers: [

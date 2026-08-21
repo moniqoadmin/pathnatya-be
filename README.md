@@ -38,7 +38,8 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - **Check phone**: reports whether the account exists and whether this device still needs a password. Rejects login-disabled teams and accounts at the device cap.
 - **Set password**: hashes the password, binds the device, stores optional metadata, returns `teamNumber`.
 - **Login**: matches the device team (or any team with a password when `?admin=true`), returns account + team + JWE token.
-- **Admin login** (`?admin=true`): skips device MAC matching and team caps; shorter token TTL.
+- **Admin login** (`?admin=true`): skips device MAC matching and team caps; shorter token TTL. Admin / SuperAdmin / Developer always receive a token on this path.
+- **Electron privileged login**: controlled by entitlement `ADMIN_LOGIN_ELECTRON_APP` (default true). When false, Admin / SuperAdmin / Developer cannot log in from the Electron app (`admin` omitted or false).
 - **Login protection**: lock after too many failures per phone and per IP (defaults: 5 phone / 100 IP failures in 15 minutes → 15-minute lock).
 - **Password-hash concurrency cap** so scrypt cannot saturate the process (`LOGIN_HASH_CONCURRENCY`, queue limit, `503` + retry-after when busy).
 - Paginated account list with search (phone or kendra). Admins see only `User` accounts in their sanghat; SuperAdmin / Developer see all and may filter by role or sanghat name.
@@ -79,6 +80,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 ### Configuration
 
 - **App configurations**: HLS source, allowed hosts, and video-file list, assigned to accounts by numeric id. Reads are authenticated; writes are SuperAdmin / Developer only.
+- **Entitlements**: SuperAdmin / Developer feature flags the Electron app can read. `ADMIN_LOGIN_ELECTRON_APP` is seeded **enabled** when the table is created. When it is **true**, Admin / SuperAdmin / Developer may log in with `?admin=true` or `?admin=false`. When it is **false**, those roles may only log in with `?admin=true`; the Electron app accepts User roles only. Creates and updates write an audit-trail entry for the caller.
 
 ### Health and ops
 
@@ -177,7 +179,7 @@ Almost every route needs:
 | --- | --- |
 | `User` | Own account, own teams, own issues/comments, own logs, read config |
 | `Admin` | Users in the same sanghat: create, list, get, delete, edit a limited field set, report issues for those users |
-| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), login analytics, issue inbox, resolve issues, write app configurations |
+| `SuperAdmin` / `Developer` | All accounts, get/delete, full edits, bulk import (including role and sanghat), login analytics, issue inbox, resolve issues, write app configurations and entitlements |
 
 ## Payload encryption
 
@@ -215,7 +217,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | POST | `/accounts` | token | Create an account (Admin / SuperAdmin / Developer) |
 | POST | `/accounts/check-phone` | app key | `{ exists, needsPassword }`; `?admin=true` skips device matching |
 | POST | `/accounts/set-password` | app key | Set / reset password for this device team |
-| POST | `/accounts/login` | app key | Login; `?admin=true` → 2h token, no device bind |
+| POST | `/accounts/login` | app key | Login; `?admin=true` → 2h token, no device bind. Privileged Electron login gated by `ADMIN_LOGIN_ELECTRON_APP` |
 | GET | `/accounts/login-token` | token | Six login success keys |
 | GET | `/accounts/roles` | token | Role names |
 | GET | `/accounts/analytics` | token | Login counts (`teamsLoggedIn`, `accountsLoggedIn`, `totalTeams`, `totalAccounts`). Optional `sanghat`, `since`. Cached 3h in process memory per sanghat + since. SuperAdmin / Developer |
@@ -262,6 +264,15 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | GET | `/app-configurations` | token | List configurations |
 | POST | `/app-configurations` | token | Upsert by numeric `id` (SuperAdmin / Developer) |
 
+### Entitlements
+
+| Method | Endpoint | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/entitlements` | token | List flags (Electron app reads these) |
+| GET | `/entitlements/:key` | token | Get one flag |
+| POST | `/entitlements` | token | Add a flag (SuperAdmin / Developer). Audited |
+| PATCH | `/entitlements/:key` | token | Update `enabled` / `description` (SuperAdmin / Developer). Audited |
+
 ## Project structure
 
 ```
@@ -273,6 +284,7 @@ src/
   videos/                         # Video catalog entities (no HTTP API)
   issues/                         # Issue reporting and resolution
   logs/                           # Client event logs
+  entitlements/                   # SuperAdmin feature flags (Electron login gate)
   config/                         # App configurations, DB/cache
   crypto/                         # Payload JWE interceptor, encrypt/decrypt helpers
   health/                         # Liveness + DB ping + server time
