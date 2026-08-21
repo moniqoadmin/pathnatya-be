@@ -1,14 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsInt,
-  IsObject,
-  IsOptional,
-  Min,
-  ValidateNested,
-} from 'class-validator';
-import { VideoConfigDto } from './video-config.dto';
+import { IsInt, IsOptional, Min } from 'class-validator';
 
 export class UpdateAppConfigurationDto {
   @ApiPropertyOptional({
@@ -21,15 +12,21 @@ export class UpdateAppConfigurationDto {
   @Min(1)
   id?: number;
 
-  @ApiPropertyOptional({ type: VideoConfigDto })
+  @ApiPropertyOptional({
+    description: 'Arbitrary JSON stored as video_config.',
+    example: {
+      DEFAULT_HLS_SOURCE:
+        'https://pathnatya-video-cdn.b-cdn.net/video-001/playlist.m3u8',
+      ALLOWED_HOSTS: ['pathnatya-video-cdn.b-cdn.net'],
+    },
+  })
   @IsOptional()
-  @IsObject()
-  @ValidateNested()
-  @Type(() => VideoConfigDto)
-  videoConfig?: VideoConfigDto;
+  videoConfig?: unknown;
 
-  @ApiPropertyOptional({ type: [Object], example: [] })
+  @ApiPropertyOptional({
+    description: 'Arbitrary JSON stored as video_files.',
+    example: [],
+  })
   @IsOptional()
-  @IsArray()
-  videoFiles?: Record<string, unknown>[];
+  videoFiles?: unknown;
 }
