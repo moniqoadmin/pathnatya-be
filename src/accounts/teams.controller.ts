@@ -37,7 +37,7 @@ export class TeamsController {
   @Get(':accountId/teams')
   @ApiOperation({
     summary:
-      'List teams for an account. Optional admin query flag. Each team includes its id for PATCH /accounts/:accountId/teams/:teamId. Users may view their own teams. Admins may view User accounts in their sanghat. SuperAdmin and Developer may view any account.',
+      'List teams for an account. Optional admin query flag. Each team includes its id for GET /teams/:teamId and PATCH /accounts/:accountId/teams/:teamId. Users may view their own teams. Admins may view User accounts in their sanghat. SuperAdmin and Developer may view any account.',
   })
   findAll(
     @Req() req: Request,
@@ -65,5 +65,31 @@ export class TeamsController {
       teamId,
       patchTeamDto,
     );
+  }
+}
+
+@ApiTags('teams')
+@ApiHeader({
+  name: 'X-App-Key',
+  description: 'Shared secret embedded in the Electron app',
+  required: true,
+})
+@ApiBearerAuth()
+@UseGuards(AppKeyGuard, JweAuthGuard)
+@Controller('teams')
+export class TeamItemController {
+  constructor(private readonly accountsService: AccountsService) {}
+
+  @Get(':teamId')
+  @ApiOperation({
+    summary:
+      'Get one team by id from the teams table. Optional admin query flag. Users may view their own teams. Admins may view User accounts in their sanghat. SuperAdmin and Developer may view any account.',
+  })
+  findOne(
+    @Req() req: Request,
+    @Param('teamId', ParseUUIDPipe) teamId: string,
+    @Query() _query: OptionalAdminQueryDto,
+  ) {
+    return this.accountsService.findTeam(req.user!.sub, teamId);
   }
 }

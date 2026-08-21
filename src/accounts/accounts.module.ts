@@ -6,7 +6,7 @@ import { Team } from './entities/team.entity';
 import { AccountsService } from './accounts.service';
 import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
 import { AccountsController } from './accounts.controller';
-import { TeamsController } from './teams.controller';
+import { TeamItemController, TeamsController } from './teams.controller';
 import { JweService } from './jwe.service';
 import { JweAuthGuard } from './guards/jwe-auth.guard';
 import { AppKeyGuard } from './guards/app-key.guard';
@@ -19,7 +19,7 @@ import { PasswordVerificationService } from './password-verification.service';
     TypeOrmModule.forFeature([Account, Team]),
     forwardRef(() => AuditTrailModule),
   ],
-  controllers: [AccountsController, TeamsController],
+  controllers: [AccountsController, TeamsController, TeamItemController],
   providers: [
     AccountsService,
     BulkAccountsUploadService,

@@ -257,6 +257,29 @@ export class AccountsService {
     return this.toTeamsResponse(account.teams);
   }
 
+  async findTeam(
+    callerId: string,
+    teamId: string,
+  ): Promise<TeamItemResponse> {
+    const caller = await this.getEntityOrFail(callerId);
+    const team = await this.teamsRepository.findOne({
+      where: { id: teamId },
+    });
+    if (!team) {
+      throw new NotFoundException(`Team ${teamId} not found`);
+    }
+    const account = await this.accountsRepository.findOne({
+      where: { id: team.accountId },
+    });
+    if (!account) {
+      throw new NotFoundException(
+        `Account with id ${team.accountId} not found`,
+      );
+    }
+    authorizeViewAccount(caller, account);
+    return { team: this.toTeamResponse(team) };
+  }
+
   async findByPhoneNumber(phoneNumber: string): Promise<AccountResponse> {
     const account = await this.accountsRepository.findOne({
       where: { phoneNumber },
