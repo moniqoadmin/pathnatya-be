@@ -31,7 +31,7 @@ export class HealthController {
       ...this.healthService.now(),
       version: '4.9.0',
       currentVideoVersion: '2.0.0',
-      latestVideoVersion: '3.0.0',
+      latestVideoVersion: '2.0.0',
     };
     if (result.status === 'down') {
       throw new ServiceUnavailableException(body);
