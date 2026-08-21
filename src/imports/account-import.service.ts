@@ -15,6 +15,7 @@ import {
   AccountImportJobStatus,
 } from './entities/account-import-job.entity';
 import { ListImportErrorsQueryDto } from './dto/list-import-errors-query.dto';
+import { ListImportJobsQueryDto } from './dto/list-import-jobs-query.dto';
 
 @Injectable()
 export class AccountImportService {
@@ -55,6 +56,25 @@ export class AccountImportService {
       fileData: null,
       completedAt: new Date(),
     });
+  }
+
+  async findAll(role: AccountRole, query: ListImportJobsQueryDto) {
+    this.assertCanRead(role);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [data, total] = await this.jobs.findAndCount({
+      where: query.status ? { status: query.status } : {},
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return {
+      data,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 
   async findOne(id: string, role: AccountRole) {

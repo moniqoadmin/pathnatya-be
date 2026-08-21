@@ -3,8 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditTrailModule } from '../audit-trail/audit-trail.module';
 import { Account } from './entities/account.entity';
 import { Team } from './entities/team.entity';
+import { BulkFlagJob } from './entities/bulk-flag-job.entity';
+import { BulkFlagJobError } from './entities/bulk-flag-job-error.entity';
 import { AccountsService } from './accounts.service';
 import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
+import { BulkFlagsJobService } from './bulk-flags-job.service';
+import { BulkFlagsQueueService } from './bulk-flags-queue.service';
 import { AccountsController } from './accounts.controller';
 import { TeamItemController, TeamsController } from './teams.controller';
 import { JweService } from './jwe.service';
@@ -16,13 +20,15 @@ import { PasswordVerificationService } from './password-verification.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Account, Team]),
+    TypeOrmModule.forFeature([Account, Team, BulkFlagJob, BulkFlagJobError]),
     forwardRef(() => AuditTrailModule),
   ],
   controllers: [AccountsController, TeamsController, TeamItemController],
   providers: [
     AccountsService,
     BulkAccountsUploadService,
+    BulkFlagsJobService,
+    BulkFlagsQueueService,
     JweService,
     JweAuthGuard,
     AppKeyGuard,

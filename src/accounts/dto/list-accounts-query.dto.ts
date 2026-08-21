@@ -70,4 +70,14 @@ export class ListAccountsQueryDto {
   @IsOptional()
   @IsEnum(AccountRole)
   role?: AccountRole;
+
+  @ApiPropertyOptional({
+    example: 'Pune Sanghat',
+    description:
+      'Filter by sanghat name. Match is case-insensitive and ignores surrounding whitespace. Admins always receive accounts in their own sanghat.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sanghat?: string;
 }

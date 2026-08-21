@@ -12,7 +12,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { Account, AccountRole, parseAccountRole } from './entities/account.entity';
+import {
+  Account,
+  AccountRole,
+  parseAccountRole,
+} from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import {
@@ -20,6 +24,7 @@ import {
   authorizeDeleteAccount,
   authorizeViewAccount,
 } from './account-authorization';
+import { BulkUpdateFlagsDto } from './dto/bulk-update-flags.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { PatchTeamDto, UpdateTeamDto } from './dto/update-team.dto';
@@ -112,6 +117,39 @@ export interface PaginatedAccountsResponse {
   totalPages: number;
 }
 
+export type SanghatsResponse = {
+  sanghats: string[];
+};
+
+export type BulkUpdateFlagsError = {
+  phoneNumber: string;
+  kendra: string | null;
+  sanghat: string | null;
+  teamNumber: number | null;
+  fields: string[];
+  error: string;
+};
+
+export type BulkUpdateFlagsResponse = {
+  sanghat: string | null;
+  all: boolean;
+  usersChanged: number;
+  teamsChanged: number;
+  errors: BulkUpdateFlagsError[];
+};
+
+export type BulkFlagsProgress = {
+  usersChanged: number;
+  teamsChanged: number;
+  errors: BulkUpdateFlagsError[];
+};
+
+const BULK_FLAGS_UPDATED_EVENT = 'BULK_FLAGS_UPDATED';
+
+const UNCHANGED_VALUE_ERROR = 'value did not change';
+
+const BULK_FLAGS_BATCH_SIZE = 500;
+
 @Injectable()
 export class AccountsService {
   constructor(
@@ -161,7 +199,8 @@ export class AccountsService {
       },
       numberOfTeams: createAccountDto.numberOfTeams ?? null,
       numberOfReboot:
-        createAccountDto.numberOfReboot ?? ACCOUNT_FIELD_DEFAULTS.numberOfReboot,
+        createAccountDto.numberOfReboot ??
+        ACCOUNT_FIELD_DEFAULTS.numberOfReboot,
       logoutButton:
         createAccountDto.logoutButton ?? ACCOUNT_FIELD_DEFAULTS.logoutButton,
       appConfiguration:
@@ -210,6 +249,14 @@ export class AccountsService {
       );
     }
 
+    const sanghat = query.sanghat?.trim();
+    if (sanghat) {
+      qb.andWhere(
+        'LOWER(BTRIM(account.sanghat)) = LOWER(BTRIM(:sanghatFilter))',
+        { sanghatFilter: sanghat },
+      );
+    }
+
     const search = query.search?.trim();
     if (search) {
       const sanitized = search.replace(/[%_\\]/g, '');
@@ -237,6 +284,134 @@ export class AccountsService {
     return this.toResponse(account);
   }
 
+  async listSanghats(): Promise<SanghatsResponse> {
+    const rows = await this.accountsRepository
+      .createQueryBuilder('account')
+      .select('MIN(account.sanghat)', 'sanghat')
+      .where('account.sanghat IS NOT NULL')
+      .andWhere("BTRIM(account.sanghat) <> ''")
+      .groupBy('LOWER(BTRIM(account.sanghat))')
+      .orderBy('MIN(account.sanghat)', 'ASC')
+      .getRawMany<{ sanghat: string }>();
+
+    return { sanghats: rows.map((row) => row.sanghat) };
+  }
+
+  async bulkUpdateFlags(
+    callerId: string,
+    dto: BulkUpdateFlagsDto,
+    onProgress?: (progress: BulkFlagsProgress) => Promise<void>,
+  ): Promise<BulkUpdateFlagsResponse> {
+    const all = dto.all === true;
+    const sanghat = dto.sanghat?.trim() || null;
+    if (all && sanghat) {
+      throw new BadRequestException(
+        'Provide either sanghat or all=true, not both',
+      );
+    }
+    if (!all && !sanghat) {
+      throw new BadRequestException('Provide sanghat or all=true');
+    }
+
+    const accountSet = this.toBulkAccountSet(dto);
+    const hasAccountFlags = Object.keys(accountSet).length > 0;
+    const hasTeamFlags =
+      dto.isLoginDisabled !== undefined || dto.setPassword === true;
+
+    if (!hasAccountFlags && !hasTeamFlags) {
+      throw new BadRequestException(
+        'Provide at least one of: logoutButton, appConfiguration, numberOfReboot, isOffline, isLoginDisabled, setPassword',
+      );
+    }
+
+    const errors: BulkUpdateFlagsError[] = [];
+    const collectErrors = !onProgress;
+    let errorCount = 0;
+    let usersChanged = 0;
+    let teamsChanged = 0;
+    let afterId: string | null = null;
+    let scanned = 0;
+
+    for (;;) {
+      const batch = await this.loadBulkFlagBatch(sanghat, afterId);
+      if (batch.length === 0) {
+        break;
+      }
+      scanned += batch.length;
+      afterId = batch[batch.length - 1].id;
+      await this.attachTeams(batch);
+
+      const planned = this.planBulkFlagUpdates(
+        batch,
+        dto,
+        accountSet,
+        hasAccountFlags,
+        hasTeamFlags,
+      );
+      await this.applyBulkFlagUpdates(accountSet, dto, planned);
+      usersChanged += planned.changedAccountIds.size;
+      teamsChanged += planned.teamIdsToUpdate.length;
+      errorCount += planned.errors.length;
+      if (collectErrors) {
+        errors.push(...planned.errors);
+      }
+      if (onProgress) {
+        await onProgress({
+          usersChanged,
+          teamsChanged,
+          errors: planned.errors,
+        });
+      }
+      if (batch.length < BULK_FLAGS_BATCH_SIZE) {
+        break;
+      }
+    }
+
+    if (scanned === 0) {
+      if (sanghat) {
+        throw new NotFoundException(
+          `No accounts found for sanghat "${sanghat}"`,
+        );
+      }
+      return {
+        sanghat: null,
+        all: true,
+        usersChanged: 0,
+        teamsChanged: 0,
+        errors: [],
+      };
+    }
+
+    await this.auditTrailService.create(callerId, {
+      event:
+        dto.isLoginDisabled === false
+          ? USER_ENABLED_EVENT
+          : BULK_FLAGS_UPDATED_EVENT,
+      message:
+        dto.isLoginDisabled === false
+          ? dto.reason!
+          : all
+            ? 'Bulk-updated flags for all accounts'
+            : `Bulk-updated flags for sanghat ${sanghat}`,
+      metaData: {
+        sanghat,
+        all,
+        flags: this.toBulkFlagsMeta(dto),
+        usersChanged,
+        teamsChanged,
+        errorCount,
+      },
+    });
+
+    return {
+      sanghat,
+      all,
+      usersChanged,
+      teamsChanged,
+      errors: collectErrors ? errors : [],
+    };
+  }
+
   async findOneForCaller(
     callerId: string,
     id: string,
@@ -247,20 +422,14 @@ export class AccountsService {
     return this.toResponse(account);
   }
 
-  async findTeams(
-    callerId: string,
-    accountId: string,
-  ): Promise<TeamsResponse> {
+  async findTeams(callerId: string, accountId: string): Promise<TeamsResponse> {
     const caller = await this.getEntityOrFail(callerId);
     const account = await this.getEntityOrFail(accountId);
     authorizeViewAccount(caller, account);
     return this.toTeamsResponse(account.teams);
   }
 
-  async findTeam(
-    callerId: string,
-    teamId: string,
-  ): Promise<TeamItemResponse> {
+  async findTeam(callerId: string, teamId: string): Promise<TeamItemResponse> {
     const caller = await this.getEntityOrFail(callerId);
     const team = await this.teamsRepository.findOne({
       where: { id: teamId },
@@ -1340,6 +1509,250 @@ export class AccountsService {
       return;
     }
     team.systemAddress = ip;
+  }
+
+  private toBulkAccountSet(dto: BulkUpdateFlagsDto): {
+    logoutButton?: boolean;
+    appConfiguration?: number;
+    numberOfReboot?: number;
+    isOffline?: boolean;
+  } {
+    const accountSet: {
+      logoutButton?: boolean;
+      appConfiguration?: number;
+      numberOfReboot?: number;
+      isOffline?: boolean;
+    } = {};
+    if (dto.logoutButton !== undefined) {
+      accountSet.logoutButton = dto.logoutButton;
+    }
+    if (dto.appConfiguration !== undefined) {
+      accountSet.appConfiguration = dto.appConfiguration;
+    }
+    if (dto.numberOfReboot !== undefined) {
+      accountSet.numberOfReboot = dto.numberOfReboot;
+    }
+    if (dto.isOffline !== undefined) {
+      accountSet.isOffline = dto.isOffline;
+    }
+    return accountSet;
+  }
+
+  private async loadBulkFlagBatch(
+    sanghat: string | null,
+    afterId: string | null,
+  ): Promise<Account[]> {
+    const qb = this.accountsRepository
+      .createQueryBuilder('account')
+      .orderBy('account.id', 'ASC')
+      .take(BULK_FLAGS_BATCH_SIZE);
+    if (sanghat) {
+      qb.andWhere('LOWER(BTRIM(account.sanghat)) = LOWER(BTRIM(:sanghat))', {
+        sanghat,
+      });
+    }
+    if (afterId) {
+      qb.andWhere('account.id > :afterId', { afterId });
+    }
+    return qb.getMany();
+  }
+
+  private planBulkFlagUpdates(
+    accounts: Account[],
+    dto: BulkUpdateFlagsDto,
+    accountSet: {
+      logoutButton?: boolean;
+      appConfiguration?: number;
+      numberOfReboot?: number;
+      isOffline?: boolean;
+    },
+    hasAccountFlags: boolean,
+    hasTeamFlags: boolean,
+  ): {
+    changedAccountIds: Set<string>;
+    accountIdsToUpdate: string[];
+    teamIdsToUpdate: string[];
+    errors: BulkUpdateFlagsError[];
+  } {
+    const errors: BulkUpdateFlagsError[] = [];
+    const changedAccountIds = new Set<string>();
+    const accountIdsToUpdate: string[] = [];
+    const teamIdsToUpdate: string[] = [];
+
+    for (const account of accounts) {
+      if (hasAccountFlags) {
+        const unchanged: string[] = [];
+        let needsUpdate = false;
+        for (const [field, value] of Object.entries(accountSet) as Array<
+          [keyof typeof accountSet, boolean | number]
+        >) {
+          if (account[field] === value) {
+            unchanged.push(field);
+          } else {
+            needsUpdate = true;
+          }
+        }
+        if (needsUpdate) {
+          accountIdsToUpdate.push(account.id);
+          changedAccountIds.add(account.id);
+        }
+        if (unchanged.length > 0) {
+          errors.push(
+            this.toBulkFlagError(
+              account,
+              null,
+              unchanged,
+              UNCHANGED_VALUE_ERROR,
+            ),
+          );
+        }
+      }
+
+      if (!hasTeamFlags) {
+        continue;
+      }
+
+      if (account.teams.length === 0) {
+        const fields = [
+          ...(dto.isLoginDisabled !== undefined ? ['isLoginDisabled'] : []),
+          ...(dto.setPassword === true ? ['setPassword'] : []),
+        ];
+        errors.push(
+          this.toBulkFlagError(account, null, fields, 'no teams to update'),
+        );
+        continue;
+      }
+
+      for (const team of account.teams) {
+        const unchanged: string[] = [];
+        let needsUpdate = false;
+        if (dto.isLoginDisabled !== undefined) {
+          if (team.isLoginDisabled === dto.isLoginDisabled) {
+            unchanged.push('isLoginDisabled');
+          } else {
+            needsUpdate = true;
+          }
+        }
+        if (dto.setPassword === true) {
+          const alreadyReset =
+            team.setPassword === true &&
+            !team.passwordHash &&
+            !team.systemAddress;
+          if (alreadyReset) {
+            unchanged.push('setPassword');
+          } else {
+            needsUpdate = true;
+          }
+        }
+        if (needsUpdate) {
+          teamIdsToUpdate.push(team.id);
+          changedAccountIds.add(account.id);
+        }
+        if (unchanged.length > 0) {
+          errors.push(
+            this.toBulkFlagError(
+              account,
+              team.teamNumber,
+              unchanged,
+              UNCHANGED_VALUE_ERROR,
+            ),
+          );
+        }
+      }
+    }
+
+    return {
+      changedAccountIds,
+      accountIdsToUpdate,
+      teamIdsToUpdate,
+      errors,
+    };
+  }
+
+  private async applyBulkFlagUpdates(
+    accountSet: {
+      logoutButton?: boolean;
+      appConfiguration?: number;
+      numberOfReboot?: number;
+      isOffline?: boolean;
+    },
+    dto: BulkUpdateFlagsDto,
+    planned: {
+      accountIdsToUpdate: string[];
+      teamIdsToUpdate: string[];
+    },
+  ): Promise<void> {
+    await this.accountsRepository.manager.transaction(async (manager) => {
+      if (planned.accountIdsToUpdate.length > 0) {
+        await manager
+          .createQueryBuilder()
+          .update(Account)
+          .set(accountSet)
+          .whereInIds(planned.accountIdsToUpdate)
+          .execute();
+      }
+      if (planned.teamIdsToUpdate.length > 0) {
+        const teamSet: {
+          isLoginDisabled?: boolean;
+          setPassword?: boolean;
+          passwordHash?: () => string;
+          systemAddress?: () => string;
+        } = {};
+        if (dto.isLoginDisabled !== undefined) {
+          teamSet.isLoginDisabled = dto.isLoginDisabled;
+        }
+        if (dto.setPassword === true) {
+          teamSet.setPassword = true;
+          teamSet.passwordHash = () => 'NULL';
+          teamSet.systemAddress = () => 'NULL';
+        }
+        await manager
+          .createQueryBuilder()
+          .update(Team)
+          .set(teamSet)
+          .whereInIds(planned.teamIdsToUpdate)
+          .execute();
+      }
+    });
+  }
+
+  private toBulkFlagError(
+    account: Account,
+    teamNumber: number | null,
+    fields: string[],
+    error: string,
+  ): BulkUpdateFlagsError {
+    return {
+      phoneNumber: account.phoneNumber,
+      kendra: account.kendra,
+      sanghat: account.sanghat,
+      teamNumber,
+      fields,
+      error,
+    };
+  }
+
+  private toBulkFlagsMeta(dto: BulkUpdateFlagsDto): Record<string, unknown> {
+    const flags: Record<string, unknown> = {};
+    if (dto.logoutButton !== undefined) {
+      flags.logoutButton = dto.logoutButton;
+    }
+    if (dto.appConfiguration !== undefined) {
+      flags.appConfiguration = dto.appConfiguration;
+    }
+    if (dto.numberOfReboot !== undefined) {
+      flags.numberOfReboot = dto.numberOfReboot;
+    }
+    if (dto.isOffline !== undefined) {
+      flags.isOffline = dto.isOffline;
+    }
+    if (dto.isLoginDisabled !== undefined) {
+      flags.isLoginDisabled = dto.isLoginDisabled;
+    }
+    if (dto.setPassword === true) {
+      flags.setPassword = true;
+    }
+    return flags;
   }
 
   private toTeamResponse(team: Team): TeamResponse {

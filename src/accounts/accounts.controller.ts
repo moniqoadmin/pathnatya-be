@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,6 +14,7 @@ import {
   Query,
   Req,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,8 +26,13 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AccountsService } from './accounts.service';
+import { BulkFlagsJobService } from './bulk-flags-job.service';
+import { BulkFlagsQueueService } from './bulk-flags-queue.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ListAccountsQueryDto } from './dto/list-accounts-query.dto';
+import { BulkUpdateFlagsDto } from './dto/bulk-update-flags.dto';
+import { ListBulkFlagErrorsQueryDto } from './dto/list-bulk-flag-errors-query.dto';
+import { ListBulkFlagJobsQueryDto } from './dto/list-bulk-flag-jobs-query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { LoginDto } from './dto/login.dto';
 import { LoginQueryDto } from './dto/login-query.dto';
@@ -56,6 +63,8 @@ const AuthThrottle = () => Throttle({ default: { limit: 15, ttl: 60_000 } });
 export class AccountsController {
   constructor(
     private readonly accountsService: AccountsService,
+    private readonly bulkFlagsJobs: BulkFlagsJobService,
+    private readonly bulkFlagsQueue: BulkFlagsQueueService,
     private readonly jweService: JweService,
   ) {}
 
@@ -167,10 +176,104 @@ export class AccountsController {
     return { roles: Object.values(AccountRole) };
   }
 
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Get('sanghats')
+  @ApiOperation({
+    summary:
+      'List distinct sanghat names from the accounts table. SuperAdmin and Developer only.',
+  })
+  listSanghats() {
+    return this.accountsService.listSanghats();
+  }
+
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Patch('sanghats/flags')
+  @ApiOperation({
+    summary:
+      'Bulk-update account and/or team flags. With sanghat: runs immediately and returns usersChanged, teamsChanged, and errors. With all=true: queues a job and returns 202 { jobId, status }. Poll GET /accounts/sanghats/flags/jobs/:jobId. SuperAdmin and Developer only.',
+  })
+  async bulkUpdateFlags(
+    @Req() req: Request,
+    @Body() bulkUpdateFlagsDto: BulkUpdateFlagsDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (bulkUpdateFlagsDto.all === true) {
+      const job = await this.bulkFlagsJobs.create(
+        bulkUpdateFlagsDto,
+        req.user!.sub,
+      );
+      try {
+        await this.bulkFlagsQueue.enqueue(job.id);
+      } catch {
+        await this.bulkFlagsJobs.markQueueFailure(
+          job.id,
+          'Bulk flags queue is unavailable',
+        );
+        throw new ServiceUnavailableException(
+          'Bulk flags queue is unavailable. Please try again shortly.',
+        );
+      }
+      res.status(HttpStatus.ACCEPTED);
+      return { jobId: job.id, status: job.status };
+    }
+
+    if (!bulkUpdateFlagsDto.sanghat?.trim()) {
+      throw new BadRequestException('Provide sanghat or all=true');
+    }
+
+    return this.accountsService.bulkUpdateFlags(
+      req.user!.sub,
+      bulkUpdateFlagsDto,
+    );
+  }
+
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Get('sanghats/flags/jobs')
+  @ApiOperation({
+    summary:
+      'List bulk-flags jobs, newest first (paginated). Optional status filter (queued, processing, completed, failed). SuperAdmin and Developer only.',
+  })
+  async listBulkFlagJobs(
+    @Req() req: Request,
+    @Query() query: ListBulkFlagJobsQueryDto,
+  ) {
+    const caller = await this.accountsService.findOne(req.user!.sub);
+    return this.bulkFlagsJobs.findAll(caller.role, query);
+  }
+
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Get('sanghats/flags/jobs/:jobId')
+  @ApiOperation({
+    summary:
+      'Get one bulk-flags job (poll until status is completed or failed). SuperAdmin and Developer only.',
+  })
+  async getBulkFlagJob(
+    @Req() req: Request,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+  ) {
+    const caller = await this.accountsService.findOne(req.user!.sub);
+    return this.bulkFlagsJobs.findOne(jobId, caller.role);
+  }
+
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Get('sanghats/flags/jobs/:jobId/errors')
+  @ApiOperation({
+    summary:
+      'List unchanged-value errors for a bulk-flags job (paginated). SuperAdmin and Developer only.',
+  })
+  async getBulkFlagJobErrors(
+    @Req() req: Request,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+    @Query() query: ListBulkFlagErrorsQueryDto,
+  ) {
+    const caller = await this.accountsService.findOne(req.user!.sub);
+    return this.bulkFlagsJobs.findErrors(jobId, caller.role, query);
+  }
+
   @Get()
   @ApiOperation({
     summary:
-      'List accounts (paginated). Optional admin query flag. Admins see Users in their sanghat only. SuperAdmins see all accounts and may filter by role. Search matches phone number or kendra name.',
+      'List accounts (paginated). Optional admin query flag. Admins see Users in their sanghat only. SuperAdmins see all accounts and may filter by role or sanghat name. Search matches phone number or kendra name.',
   })
   findAll(@Req() req: Request, @Query() query: ListAccountsQueryDto) {
     return this.accountsService.findAll(req.user!.sub, query);

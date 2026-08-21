@@ -19,6 +19,7 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiHeader,
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -31,6 +32,7 @@ import { RolesGuard } from '../accounts/guards/roles.guard';
 import { OptionalAdminQueryDto } from '../accounts/dto/optional-admin-query.dto';
 import { AccountImportService } from './account-import.service';
 import { ListImportErrorsQueryDto } from './dto/list-import-errors-query.dto';
+import { ListImportJobsQueryDto } from './dto/list-import-jobs-query.dto';
 import { ImportQueueService } from './import-queue.service';
 
 @ApiTags('account imports')
@@ -71,6 +73,16 @@ export class ImportsController {
       );
     }
     return { jobId: job.id, status: job.status };
+  }
+
+  @Get('upload')
+  @ApiOperation({
+    summary:
+      'List account-import jobs, newest first (paginated). Optional status filter (queued, processing, completed, failed). SuperAdmin and Developer only.',
+  })
+  async findAll(@Req() req: Request, @Query() query: ListImportJobsQueryDto) {
+    const caller = await this.accounts.findOne(req.user!.sub);
+    return this.imports.findAll(caller.role, query);
   }
 
   @Get('upload/:jobId')

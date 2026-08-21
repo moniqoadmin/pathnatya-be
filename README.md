@@ -41,7 +41,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 - **Admin login** (`?admin=true`): skips device MAC matching and team caps; shorter token TTL.
 - **Login protection**: lock after too many failures per phone and per IP (defaults: 5 phone / 100 IP failures in 15 minutes → 15-minute lock).
 - **Password-hash concurrency cap** so scrypt cannot saturate the process (`LOGIN_HASH_CONCURRENCY`, queue limit, `503` + retry-after when busy).
-- Paginated account list with search (phone or kendra). Admins see only `User` accounts in their sanghat; SuperAdmin / Developer see all and may filter by role.
+- Paginated account list with search (phone or kendra). Admins see only `User` accounts in their sanghat; SuperAdmin / Developer see all and may filter by role or sanghat name.
 - Role-scoped reads and deletes: Users may GET their own account. Admins may GET or DELETE Users in their sanghat. SuperAdmin / Developer may GET or DELETE any account. A token is rejected if the caller account no longer exists.
 - Role-scoped updates: Admins may only toggle a subset of fields (password reset, login disable, offline, team count, reboot count, logout button, app configuration) for Users in their sanghat. SuperAdmin / Developer may edit all mutable fields.
 - Account flags consumed by the Electron app: `isOffline`, `logoutButton`, `numberOfReboot`, `appConfiguration`.
@@ -52,6 +52,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 - Download an `.xlsx` template (`GET /api/accounts/bulk/template`). SuperAdmin and Developer only.
 - Upload a filled sheet (`POST /api/accounts/bulk/upload`, multipart field `file`, max 20 MB). SuperAdmin and Developer only. Role and sanghat in the sheet are applied as given.
+- List import jobs (`GET /api/accounts/bulk/upload`, paginated, optional `status`). SuperAdmin and Developer only.
 - In-process queue (`IMPORT_QUEUE_CONCURRENCY`) with job status: `queued` → `processing` → `completed` / `failed`.
 - Per-row errors stored and listed with pagination. Duplicate / invalid phones are skipped, not fatal.
 - Template columns include country, sanghat, jilha, taluka, group, kendra type/name, sanchalak, country code (`91` / `44` / `1`), mobile number, expected team count, and role.
@@ -214,7 +215,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | POST | `/accounts/login` | app key | Login; `?admin=true` → 2h token, no device bind |
 | GET | `/accounts/login-token` | token | Six login success keys |
 | GET | `/accounts/roles` | token | Role names |
-| GET | `/accounts` | token | Paginated list (`page`, `limit`, `search`, `role`, `admin`) |
+| GET | `/accounts` | token | Paginated list (`page`, `limit`, `search`, `role`, `sanghat`, `admin`) |
 | GET | `/accounts/:id` | token | Get one account (own, or role-scoped) |
 | PATCH | `/accounts/:id` | token | Update account (role-scoped) |
 | DELETE | `/accounts/:id` | token | Delete account (Admin / SuperAdmin / Developer) |
@@ -222,6 +223,7 @@ Base path: `/api`. Authenticated routes also need `X-App-Key` and a Bearer token
 | PATCH | `/accounts/:accountId/teams/:teamId` | token | Update one team |
 | GET | `/accounts/bulk/template` | token | Download Excel template (binary, not encrypted). SuperAdmin / Developer |
 | POST | `/accounts/bulk/upload` | token | Queue Excel import (`202`, `{ jobId, status }`). SuperAdmin / Developer |
+| GET | `/accounts/bulk/upload` | token | Paginated import jobs (`page`, `limit`, `status`). SuperAdmin / Developer |
 | GET | `/accounts/bulk/upload/:jobId` | token | Import job status. SuperAdmin / Developer |
 | GET | `/accounts/bulk/upload/:jobId/errors` | token | Paginated row errors. SuperAdmin / Developer |
 
