@@ -53,7 +53,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 ### Bulk account import
 
 - Download an `.xlsx` template (`GET /api/accounts/bulk/template`). SuperAdmin and Developer only.
-- Upload a filled sheet (`POST /api/accounts/bulk/upload`, multipart field `file`, max 20 MB). SuperAdmin and Developer only. Role and sanghat in the sheet are applied as given.
+- Upload a filled sheet (`POST /api/accounts/bulk/upload`, multipart field `file`, max 20 MB). SuperAdmin and Developer only. Role and sanghat in the sheet are applied as given. Admin, SuperAdmin, and Developer rows always get `numberOfTeams` 1, ignoring the sheet value.
 - Update team counts for existing accounts (`POST /api/accounts/bulk/teams`, same Excel format). Phone numbers must already exist; missing phones and invalid team numbers are per-row errors. Uses **Updated No. of Teams Expected** when that column is present, otherwise **No. of Teams Expected**.
 - List import jobs (`GET /api/accounts/bulk/upload`, paginated, optional `status`). SuperAdmin and Developer only.
 - List team-number update jobs (`GET /api/accounts/bulk/teams`, paginated, optional `status`). SuperAdmin and Developer only.

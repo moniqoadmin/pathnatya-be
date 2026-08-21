@@ -15,6 +15,12 @@ export enum AccountRole {
   DEVELOPER = 'Developer',
 }
 
+const FIXED_SINGLE_TEAM_ROLES: ReadonlySet<AccountRole> = new Set([
+  AccountRole.ADMIN,
+  AccountRole.SUPER_ADMIN,
+  AccountRole.DEVELOPER,
+]);
+
 // Case-insensitive match against the four roles. Unknown / empty → User.
 export function parseAccountRole(raw: unknown): AccountRole {
   const normalized = String(raw ?? '')
@@ -24,6 +30,11 @@ export function parseAccountRole(raw: unknown): AccountRole {
     (role) => role.toLowerCase() === normalized,
   );
   return match ?? AccountRole.USER;
+}
+
+/** Admin, SuperAdmin, and Developer always have one team on Excel create. */
+export function hasFixedSingleTeamCount(role: AccountRole): boolean {
+  return FIXED_SINGLE_TEAM_ROLES.has(role);
 }
 
 @Entity('accounts')

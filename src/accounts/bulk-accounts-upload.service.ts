@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as ExcelJS from 'exceljs';
-import { Account, parseAccountRole } from './entities/account.entity';
+import {
+  Account,
+  hasFixedSingleTeamCount,
+  parseAccountRole,
+} from './entities/account.entity';
 import { Team } from './entities/team.entity';
 import {
   ACCOUNT_FIELD_DEFAULTS,
@@ -405,10 +409,12 @@ export class BulkAccountsUploadService {
     const role = parseAccountRole(values.role);
 
     const country = this.resolveCountry(values);
-    const numberOfTeams = this.parseOptionalPositiveInt(
-      values.numberOfTeams,
-      'No. of Teams Expected',
-    );
+    const numberOfTeams = hasFixedSingleTeamCount(role)
+      ? 1
+      : this.parseOptionalPositiveInt(
+          values.numberOfTeams,
+          'No. of Teams Expected',
+        );
     const numberOfReboot = this.parseOptionalNonNegativeInt(
       values.numberOfReboot,
       'No. of Reboot',

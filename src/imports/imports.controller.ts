@@ -54,7 +54,7 @@ export class ImportsController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary:
-      'Queue an Excel import that creates accounts. SuperAdmin and Developer only. Poll GET /accounts/bulk/upload/:jobId.',
+      'Queue an Excel import that creates accounts. SuperAdmin and Developer only. Admin, SuperAdmin, and Developer rows always get numberOfTeams 1. Poll GET /accounts/bulk/upload/:jobId.',
   })
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }),
