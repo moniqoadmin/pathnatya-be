@@ -108,16 +108,7 @@ export class BulkAccountsUploadService {
       rowNumber++
     ) {
       const row = sheet.getRow(rowNumber);
-      const values = TEMPLATE_COLUMNS.reduce<Record<string, string>>(
-        (acc, column) => {
-          const colIndex = fieldToColumn.get(column.field);
-          acc[column.field] = colIndex
-            ? this.cellToString(row.getCell(colIndex).value)
-            : '';
-          return acc;
-        },
-        {},
-      );
+      const values = this.rowValues(row, fieldToColumn);
 
       if (Object.values(values).every((value) => value === '')) {
         continue;
@@ -191,16 +182,7 @@ export class BulkAccountsUploadService {
       rowNumber++
     ) {
       const row = sheet.getRow(rowNumber);
-      const values = TEMPLATE_COLUMNS.reduce<Record<string, string>>(
-        (acc, column) => {
-          const colIndex = fieldToColumn.get(column.field);
-          acc[column.field] = colIndex
-            ? this.cellToString(row.getCell(colIndex).value)
-            : '';
-          return acc;
-        },
-        {},
-      );
+      const values = this.rowValues(row, fieldToColumn);
 
       if (Object.values(values).every((value) => value === '')) {
         continue;
@@ -563,6 +545,71 @@ export class BulkAccountsUploadService {
       );
     }
     return mapped;
+  }
+
+  private rowValues(
+    row: ExcelJS.Row,
+    fieldToColumn: Map<string, number>,
+  ): Record<string, string> {
+    return TEMPLATE_COLUMNS.reduce<Record<string, string>>((acc, column) => {
+      const colIndex = fieldToColumn.get(column.field);
+      acc[column.field] = colIndex
+        ? this.cellValueForField(column.field, row.getCell(colIndex))
+        : '';
+      return acc;
+    }, {});
+  }
+
+  private cellValueForField(field: string, cell: ExcelJS.Cell): string {
+    if (field === 'phoneNumber') {
+      return this.readPhoneCell(cell);
+    }
+    return this.cellToString(cell.value);
+  }
+
+  // Excel stores 9-digit phones as numbers (leading 0 dropped) or as
+  // scientific notation. Prefer the raw numeric value, then displayed text.
+  private readPhoneCell(cell: ExcelJS.Cell): string {
+    const fromValue = normalizePhoneNumber(this.phoneCellRaw(cell.value));
+    if (isSupportedPhoneNumber(fromValue)) {
+      return fromValue;
+    }
+    const fromText = normalizePhoneNumber(cell.text);
+    if (isSupportedPhoneNumber(fromText)) {
+      return fromText;
+    }
+    return fromValue || fromText;
+  }
+
+  private phoneCellRaw(value: ExcelJS.CellValue): unknown {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'number' || typeof value === 'string') {
+      return value;
+    }
+    if (typeof value === 'object') {
+      const obj = value as {
+        text?: string;
+        result?: unknown;
+        formula?: unknown;
+        sharedFormula?: unknown;
+        richText?: Array<{ text?: string }>;
+      };
+      if (obj.formula !== undefined || obj.sharedFormula !== undefined) {
+        return '';
+      }
+      if (Array.isArray(obj.richText)) {
+        return obj.richText.map((part) => part.text ?? '').join('');
+      }
+      if (typeof obj.text === 'string') {
+        return obj.text;
+      }
+      if (obj.result !== undefined && obj.result !== null) {
+        return obj.result;
+      }
+    }
+    return this.cellToString(value);
   }
 
   private normalizePhone(raw: string | undefined): string {

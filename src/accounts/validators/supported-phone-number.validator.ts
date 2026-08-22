@@ -13,10 +13,21 @@ export function normalizePhoneNumber(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
-  return String(value)
-    .trim()
-    .replace(/\.0(?=\D*$)/, '')
-    .replace(/\D/g, '');
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(Math.abs(value)).toString();
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return '';
+  }
+  // Excel may store phones as 9.87654321E+8 or 987654321.0
+  if (/^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(raw)) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.trunc(Math.abs(parsed)).toString();
+    }
+  }
+  return raw.replace(/\.0+$/, '').replace(/\D/g, '');
 }
 
 export function isSupportedPhoneNumber(value: unknown): value is string {

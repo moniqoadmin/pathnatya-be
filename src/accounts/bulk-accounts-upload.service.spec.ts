@@ -4,7 +4,7 @@ import { BulkAccountsUploadService } from './bulk-accounts-upload.service';
 
 async function workbookBuffer(
   rows: Array<{
-    phoneNumber: string;
+    phoneNumber: string | number;
     role?: string;
     numberOfTeams?: string | number;
     updatedNumberOfTeams?: string | number;
@@ -189,13 +189,15 @@ describe('BulkAccountsUploadService', () => {
       { phoneNumber: '3213-321-321', role: 'User', numberOfTeams: 1 },
       { phoneNumber: ' 3 219387 2 2 2 ', role: 'User', numberOfTeams: 1 },
       { phoneNumber: '987654321', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: 123456789, role: 'User', numberOfTeams: 1 },
     ]);
 
     const result = await service.bulkUpload(buffer);
 
-    expect(result.created).toBe(6);
+    expect(result.created).toBe(7);
     expect(result.failed).toBe(0);
     expect(inserted.map((row) => row.phoneNumber).sort()).toEqual([
+      '123456789',
       '3213321321',
       '3218332132',
       '3219387222',
@@ -266,6 +268,7 @@ describe('BulkAccountsUploadService', () => {
       { id: 'a3', phoneNumber: '3213321321', numberOfTeams: 1 },
       { id: 'a4', phoneNumber: '3219387222', numberOfTeams: 1 },
       { id: 'a5', phoneNumber: '987654321', numberOfTeams: 1 },
+      { id: 'a6', phoneNumber: '123456789', numberOfTeams: 1 },
     ]);
 
     const buffer = await workbookBuffer(
@@ -290,13 +293,17 @@ describe('BulkAccountsUploadService', () => {
           phoneNumber: '987654321',
           updatedNumberOfTeams: 4,
         },
+        {
+          phoneNumber: 123456789,
+          updatedNumberOfTeams: 2,
+        },
       ],
       { includeUpdatedColumn: true },
     );
 
     const result = await service.bulkUpdateTeamNumbers(buffer);
 
-    expect(result.updated).toBe(5);
+    expect(result.updated).toBe(6);
     expect(result.failed).toBe(0);
     expect(updated).toEqual(
       expect.arrayContaining([
@@ -305,6 +312,7 @@ describe('BulkAccountsUploadService', () => {
         { id: 'a3', numberOfTeams: 3 },
         { id: 'a4', numberOfTeams: 1 },
         { id: 'a5', numberOfTeams: 4 },
+        { id: 'a6', numberOfTeams: 2 },
       ]),
     );
   });
