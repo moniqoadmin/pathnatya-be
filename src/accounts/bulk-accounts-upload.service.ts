@@ -211,7 +211,7 @@ export class BulkAccountsUploadService {
           throw new Error('Mobile Number is missing');
         }
         if (!isSupportedPhoneNumber(phoneNumber)) {
-          throw new Error('phone number is not 10 digits');
+          throw new Error('phone number is not 9 or 10 digits');
         }
         if (seenPhones.has(phoneNumber)) {
           throw new Error('duplicate mobile number in file');
@@ -225,7 +225,7 @@ export class BulkAccountsUploadService {
         const teamRaw = hasUpdatedColumn
           ? values.updatedNumberOfTeams
           : values.numberOfTeams;
-        const numberOfTeams = this.parseRequiredPositiveInt(teamRaw);
+        const numberOfTeams = this.parseRequiredTeamCount(teamRaw);
 
         seenPhones.add(phoneNumber);
         pending.push({ rowNumber, values, account, numberOfTeams });
@@ -379,16 +379,24 @@ export class BulkAccountsUploadService {
     );
   }
 
-  private parseRequiredPositiveInt(raw: string | undefined): number {
-    const value = raw?.trim().replace(/\.0$/, '');
-    if (!value) {
+  private parseRequiredTeamCount(raw: string | undefined): number {
+    const count = this.parseOptionalTeamCount(raw);
+    if (count === undefined) {
       throw new Error('team number is not a valid number');
+    }
+    return count;
+  }
+
+  private parseOptionalTeamCount(raw: string | undefined): number | undefined {
+    const value = raw?.trim();
+    if (!value) {
+      return undefined;
     }
     const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      throw new Error('team number is not a valid number');
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error('No. of Teams Expected must be a number >= 1');
     }
-    return parsed;
+    return Math.ceil(parsed);
   }
 
   private buildAccountFromRow(
@@ -400,7 +408,7 @@ export class BulkAccountsUploadService {
       throw new Error('Mobile Number is missing');
     }
     if (!isSupportedPhoneNumber(phoneNumber)) {
-      throw new Error('phone number is not 10 digits');
+      throw new Error('phone number is not 9 or 10 digits');
     }
     if (existingPhones.has(phoneNumber)) {
       throw new Error('number already exists');
@@ -411,10 +419,7 @@ export class BulkAccountsUploadService {
     const country = this.resolveCountry(values);
     const numberOfTeams = hasFixedSingleTeamCount(role)
       ? 1
-      : this.parseOptionalPositiveInt(
-          values.numberOfTeams,
-          'No. of Teams Expected',
-        );
+      : this.parseOptionalTeamCount(values.numberOfTeams);
     const numberOfReboot = this.parseOptionalNonNegativeInt(
       values.numberOfReboot,
       'No. of Reboot',
@@ -558,7 +563,10 @@ export class BulkAccountsUploadService {
   }
 
   private normalizePhone(raw: string | undefined): string {
-    return (raw ?? '').trim().replace(/\.0$/, '');
+    return (raw ?? '')
+      .trim()
+      .replace(/\.0(?=\D*$)/, '')
+      .replace(/\D/g, '');
   }
 
   private buildRowError(

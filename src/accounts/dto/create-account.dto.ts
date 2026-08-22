@@ -17,7 +17,7 @@ export class CreateAccountDto {
   @ApiProperty({
     example: '9876543210',
     description:
-      '10-digit phone number for US, UK or India. No country code or extension. Immutable once created.',
+      '9 or 10-digit phone number for US, UK or India. No country code or extension. Immutable once created.',
   })
   @IsSupportedPhoneNumber()
   phoneNumber: string;
