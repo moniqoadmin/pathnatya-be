@@ -133,6 +133,18 @@ export type SanghatsResponse = {
   sanghats: string[];
 };
 
+export type SanghatAnalytics = {
+  sanghat: string;
+  accountsLoggedIn: number;
+  teamsLoggedIn: number;
+  totalAccounts: number;
+  totalTeams: number;
+};
+
+export type SanghatsAnalyticsResponse = {
+  sanghats: SanghatAnalytics[];
+};
+
 export type LoginAnalyticsResponse = {
   accountsLoggedIn: number;
   teamsLoggedIn: number;
@@ -319,6 +331,65 @@ export class AccountsService {
       .getRawMany<{ sanghat: string }>();
 
     return { sanghats: rows.map((row) => row.sanghat) };
+  }
+
+  async listSanghatsAnalytics(
+    query: LoginAnalyticsQueryDto,
+  ): Promise<SanghatsAnalyticsResponse> {
+    await this.entitlementsService.assertAnalyticsAllowed();
+    const sanghat = query.sanghat?.trim() || '';
+    const sinceRaw = query.since?.trim() || '';
+    const since = sinceRaw ? new Date(sinceRaw) : undefined;
+    const loggedInCondition = since
+      ? 'team.last_login_time IS NOT NULL AND team.last_login_time >= :since'
+      : 'team.last_login_time IS NOT NULL';
+
+    const qb = this.accountsRepository
+      .createQueryBuilder('account')
+      .leftJoin('account.teams', 'team')
+      .select('MIN(account.sanghat)', 'sanghat')
+      .addSelect('COUNT(DISTINCT account.id)', 'totalAccounts')
+      .addSelect('COUNT(team.id)', 'totalTeams')
+      .addSelect(
+        `COUNT(team.id) FILTER (WHERE ${loggedInCondition})`,
+        'teamsLoggedIn',
+      )
+      .addSelect(
+        `COUNT(DISTINCT team.account_id) FILTER (WHERE ${loggedInCondition})`,
+        'accountsLoggedIn',
+      )
+      .where('account.sanghat IS NOT NULL')
+      .andWhere("BTRIM(account.sanghat) <> ''")
+      .groupBy('LOWER(BTRIM(account.sanghat))')
+      .orderBy('MIN(account.sanghat)', 'ASC');
+
+    if (sanghat) {
+      qb.andWhere(
+        'LOWER(BTRIM(account.sanghat)) = LOWER(BTRIM(:sanghatFilter))',
+        { sanghatFilter: sanghat },
+      );
+    }
+    if (since) {
+      qb.setParameter('since', since);
+    }
+
+    const rows = await qb.getRawMany<{
+      sanghat: string;
+      totalAccounts: string | number | null;
+      totalTeams: string | number | null;
+      teamsLoggedIn: string | number | null;
+      accountsLoggedIn: string | number | null;
+    }>();
+
+    return {
+      sanghats: rows.map((row) => ({
+        sanghat: row.sanghat,
+        accountsLoggedIn: Number(row.accountsLoggedIn ?? 0),
+        teamsLoggedIn: Number(row.teamsLoggedIn ?? 0),
+        totalAccounts: Number(row.totalAccounts ?? 0),
+        totalTeams: Number(row.totalTeams ?? 0),
+      })),
+    };
   }
 
   async getLoginAnalytics(

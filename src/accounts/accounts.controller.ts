@@ -188,8 +188,18 @@ export class AccountsController {
     summary:
       'List distinct sanghat names from the accounts table. SuperAdmin and Developer only.',
   })
-  listSanghats() {
+  listSanghats(@Query() _query: OptionalAdminQueryDto) {
     return this.accountsService.listSanghats();
+  }
+
+  @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
+  @Get('sanghats/analytics')
+  @ApiOperation({
+    summary:
+      'Per-sanghat login analytics: accountsLoggedIn, teamsLoggedIn, totalAccounts, and totalTeams. Names are grouped case-insensitively. Optional sanghat filter and since (ISO-8601) to count only logins at or after that time. SuperAdmin and Developer only. Returns 403 when SHOW_ANALYTICS is disabled.',
+  })
+  listSanghatsAnalytics(@Query() query: LoginAnalyticsQueryDto) {
+    return this.accountsService.listSanghatsAnalytics(query);
   }
 
   @Roles(AccountRole.SUPER_ADMIN, AccountRole.DEVELOPER)
