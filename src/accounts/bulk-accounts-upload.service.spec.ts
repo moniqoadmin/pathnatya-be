@@ -183,12 +183,12 @@ describe('BulkAccountsUploadService', () => {
 
   it('strips spaces, hyphens, and other non-digits from phone numbers and accepts 9 or 10 digits', async () => {
     const buffer = await workbookBuffer([
-      { phoneNumber: ' 9876543212 ', role: 'User' },
-      { phoneNumber: ' 9876543213 `', role: 'User' },
-      { phoneNumber: '32183 3 2132', role: 'User' },
-      { phoneNumber: '3213-321-321', role: 'User' },
-      { phoneNumber: ' 3 219387 2 2 2 ', role: 'User' },
-      { phoneNumber: '987654321', role: 'User' },
+      { phoneNumber: ' 9876543212 ', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: ' 9876543213 `', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: '32183 3 2132', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: '3213-321-321', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: ' 3 219387 2 2 2 ', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: '987654321', role: 'User', numberOfTeams: 1 },
     ]);
 
     const result = await service.bulkUpload(buffer);
@@ -218,6 +218,43 @@ describe('BulkAccountsUploadService', () => {
     expect(result.errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ error: 'phone number is not 9 or 10 digits' }),
+      ]),
+    );
+  });
+
+  it('does not create a user row when numberOfTeams is missing or not a valid number', async () => {
+    const buffer = await workbookBuffer([
+      { phoneNumber: '9876543210', role: 'User', numberOfTeams: '-' },
+      { phoneNumber: '9876543211', role: 'User', numberOfTeams: '–' },
+      { phoneNumber: '9876543212', role: 'User' },
+      { phoneNumber: '9876543213', role: 'User', numberOfTeams: 'abc' },
+      { phoneNumber: '9876543214', role: 'User', numberOfTeams: 2 },
+    ]);
+
+    const result = await service.bulkUpload(buffer);
+
+    expect(result.created).toBe(1);
+    expect(result.failed).toBe(4);
+    expect(inserted).toEqual([
+      expect.objectContaining({
+        phoneNumber: '9876543214',
+        numberOfTeams: 2,
+      }),
+    ]);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phoneNumber: '9876543210',
+          error: 'team number is not a valid number',
+        }),
+        expect.objectContaining({
+          phoneNumber: '9876543212',
+          error: 'team number is not a valid number',
+        }),
+        expect.objectContaining({
+          phoneNumber: '9876543213',
+          error: 'No. of Teams Expected must be a number >= 1',
+        }),
       ]),
     );
   });
@@ -270,5 +307,32 @@ describe('BulkAccountsUploadService', () => {
         { id: 'a5', numberOfTeams: 4 },
       ]),
     );
+  });
+
+  it('does not update a row when the team count is missing or not a valid number', async () => {
+    accountsRepository.find.mockResolvedValue([
+      { id: 'a1', phoneNumber: '9876543210', numberOfTeams: 1 },
+      { id: 'a2', phoneNumber: '9876543211', numberOfTeams: 1 },
+    ]);
+
+    const buffer = await workbookBuffer(
+      [
+        { phoneNumber: '9876543210', updatedNumberOfTeams: '-' },
+        { phoneNumber: '9876543211', updatedNumberOfTeams: 3 },
+      ],
+      { includeUpdatedColumn: true },
+    );
+
+    const result = await service.bulkUpdateTeamNumbers(buffer);
+
+    expect(result.updated).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(updated).toEqual([{ id: 'a2', numberOfTeams: 3 }]);
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        phoneNumber: '9876543210',
+        error: 'team number is not a valid number',
+      }),
+    ]);
   });
 });

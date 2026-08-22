@@ -389,7 +389,7 @@ export class BulkAccountsUploadService {
 
   private parseOptionalTeamCount(raw: string | undefined): number | undefined {
     const value = raw?.trim();
-    if (!value) {
+    if (!value || /^[-–—]+$/.test(value)) {
       return undefined;
     }
     const parsed = Number(value);
@@ -419,7 +419,7 @@ export class BulkAccountsUploadService {
     const country = this.resolveCountry(values);
     const numberOfTeams = hasFixedSingleTeamCount(role)
       ? 1
-      : this.parseOptionalTeamCount(values.numberOfTeams);
+      : this.parseRequiredTeamCount(values.numberOfTeams);
     const numberOfReboot = this.parseOptionalNonNegativeInt(
       values.numberOfReboot,
       'No. of Reboot',
