@@ -7,7 +7,7 @@ export interface JweTokenPayload extends JWTPayload {
 }
 
 /** Default Electron-app session lifetime. */
-export const SESSION_TTL_DEFAULT = '5d';
+export const SESSION_TTL_DEFAULT = '2m';
 /** Admin-UI session lifetime (`?admin=true` on login). */
 export const SESSION_TTL_ADMIN = '2h';
 
