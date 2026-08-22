@@ -181,7 +181,7 @@ describe('BulkAccountsUploadService', () => {
     );
   });
 
-  it('strips spaces, hyphens, and other non-digits from phone numbers and accepts 9 or 10 digits', async () => {
+  it('strips spaces, hyphens, and other non-digits from phone numbers and accepts 8, 9 or 10 digits', async () => {
     const buffer = await workbookBuffer([
       { phoneNumber: ' 9876543212 ', role: 'User', numberOfTeams: 1 },
       { phoneNumber: ' 9876543213 `', role: 'User', numberOfTeams: 1 },
@@ -190,26 +190,30 @@ describe('BulkAccountsUploadService', () => {
       { phoneNumber: ' 3 219387 2 2 2 ', role: 'User', numberOfTeams: 1 },
       { phoneNumber: '987654321', role: 'User', numberOfTeams: 1 },
       { phoneNumber: 123456789, role: 'User', numberOfTeams: 1 },
+      { phoneNumber: '12345678', role: 'User', numberOfTeams: 1 },
+      { phoneNumber: 87654321, role: 'User', numberOfTeams: 1 },
     ]);
 
     const result = await service.bulkUpload(buffer);
 
-    expect(result.created).toBe(7);
+    expect(result.created).toBe(9);
     expect(result.failed).toBe(0);
     expect(inserted.map((row) => row.phoneNumber).sort()).toEqual([
+      '12345678',
       '123456789',
       '3213321321',
       '3218332132',
       '3219387222',
+      '87654321',
       '987654321',
       '9876543212',
       '9876543213',
     ]);
   });
 
-  it('rejects phone numbers that are not 9 or 10 digits after cleaning', async () => {
+  it('rejects phone numbers that are not 8, 9 or 10 digits after cleaning', async () => {
     const buffer = await workbookBuffer([
-      { phoneNumber: '12345678', role: 'User' },
+      { phoneNumber: '1234567', role: 'User' },
       { phoneNumber: '12345678901', role: 'User' },
     ]);
 
@@ -219,7 +223,9 @@ describe('BulkAccountsUploadService', () => {
     expect(result.failed).toBe(2);
     expect(result.errors).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ error: 'phone number is not 9 or 10 digits' }),
+        expect.objectContaining({
+          error: 'phone number is not 8, 9 or 10 digits',
+        }),
       ]),
     );
   });
@@ -261,7 +267,7 @@ describe('BulkAccountsUploadService', () => {
     );
   });
 
-  it('applies the same phone cleaning, 9/10-digit check, and team-count ceiling on team updates', async () => {
+  it('applies the same phone cleaning, 8/9/10-digit check, and team-count ceiling on team updates', async () => {
     accountsRepository.find.mockResolvedValue([
       { id: 'a1', phoneNumber: '9876543212', numberOfTeams: 1 },
       { id: 'a2', phoneNumber: '3218332132', numberOfTeams: 1 },
@@ -269,6 +275,7 @@ describe('BulkAccountsUploadService', () => {
       { id: 'a4', phoneNumber: '3219387222', numberOfTeams: 1 },
       { id: 'a5', phoneNumber: '987654321', numberOfTeams: 1 },
       { id: 'a6', phoneNumber: '123456789', numberOfTeams: 1 },
+      { id: 'a7', phoneNumber: '12345678', numberOfTeams: 1 },
     ]);
 
     const buffer = await workbookBuffer(
@@ -297,13 +304,17 @@ describe('BulkAccountsUploadService', () => {
           phoneNumber: 123456789,
           updatedNumberOfTeams: 2,
         },
+        {
+          phoneNumber: 12345678,
+          updatedNumberOfTeams: 5,
+        },
       ],
       { includeUpdatedColumn: true },
     );
 
     const result = await service.bulkUpdateTeamNumbers(buffer);
 
-    expect(result.updated).toBe(6);
+    expect(result.updated).toBe(7);
     expect(result.failed).toBe(0);
     expect(updated).toEqual(
       expect.arrayContaining([
@@ -313,6 +324,7 @@ describe('BulkAccountsUploadService', () => {
         { id: 'a4', numberOfTeams: 1 },
         { id: 'a5', numberOfTeams: 4 },
         { id: 'a6', numberOfTeams: 2 },
+        { id: 'a7', numberOfTeams: 5 },
       ]),
     );
   });

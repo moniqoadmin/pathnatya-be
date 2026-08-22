@@ -117,6 +117,7 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
       'mobile number',
       'mobile number ex: 9999999999',
       'mobile number ex: 999999999',
+      'mobile number ex: 99999999',
       'phonenumber',
       'phone number',
     ],

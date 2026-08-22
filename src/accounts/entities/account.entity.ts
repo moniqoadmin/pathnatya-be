@@ -42,7 +42,7 @@ export class Account {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // 9 or 10-digit US/UK/India phone number, stored without country code or
+  // 8, 9 or 10-digit US/UK/India phone number, stored without country code or
   // extension (e.g. 9876543210). phoneNumber is immutable once created.
   @Column({ name: 'phone_number', unique: true, length: 20, update: false })
   phoneNumber: string;

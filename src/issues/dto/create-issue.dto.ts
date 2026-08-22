@@ -14,7 +14,7 @@ export class CreateIssueDto {
   @ApiProperty({
     example: '9876543210',
     description:
-      '9 or 10-digit phone number of the account this issue is for. Admins may send a User phone number to report on their behalf.',
+      '8, 9 or 10-digit phone number of the account this issue is for. Admins may send a User phone number to report on their behalf.',
   })
   @IsSupportedPhoneNumber()
   phoneNumber: string;

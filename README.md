@@ -30,7 +30,7 @@ NestJS API for the Pathnatya Electron desktop app. It manages accounts and devic
 
 ### Accounts, teams, and login
 
-- CRUD for accounts keyed by an immutable **9- or 10-digit** US / UK / India phone number (no country code). **Create** (`POST /api/accounts`) requires a token: Admin, SuperAdmin, or Developer. Admins may only create `User` accounts in their sanghat.
+- CRUD for accounts keyed by an immutable **8-, 9- or 10-digit** US / UK / India phone number (no country code). **Create** (`POST /api/accounts`) requires a token: Admin, SuperAdmin, or Developer. Admins may only create `User` accounts in their sanghat.
 - Organizational fields: country, sanghat, jilha, taluka, group, kendra, sanchalak name, metadata.
 - Roles: `User`, `Admin`, `SuperAdmin`, `Developer`.
 - **Device teams**: each account has up to `numberOfTeams` teams (default 1). A team is created when a new device MAC (`ipAddress`) sets a password or logs in, and is bound to that `systemAddress`.

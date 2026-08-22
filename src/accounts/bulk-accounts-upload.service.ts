@@ -196,7 +196,7 @@ export class BulkAccountsUploadService {
           throw new Error('Mobile Number is missing');
         }
         if (!isSupportedPhoneNumber(phoneNumber)) {
-          throw new Error('phone number is not 9 or 10 digits');
+          throw new Error('phone number is not 8, 9 or 10 digits');
         }
         if (seenPhones.has(phoneNumber)) {
           throw new Error('duplicate mobile number in file');
@@ -393,7 +393,7 @@ export class BulkAccountsUploadService {
       throw new Error('Mobile Number is missing');
     }
     if (!isSupportedPhoneNumber(phoneNumber)) {
-      throw new Error('phone number is not 9 or 10 digits');
+      throw new Error('phone number is not 8, 9 or 10 digits');
     }
     if (existingPhones.has(phoneNumber)) {
       throw new Error('number already exists');
@@ -567,7 +567,7 @@ export class BulkAccountsUploadService {
     return this.cellToString(cell.value);
   }
 
-  // Excel stores 9-digit phones as numbers (leading 0 dropped) or as
+  // Excel stores 8–10 digit phones as numbers (leading 0 dropped) or as
   // scientific notation. Prefer the raw numeric value, then displayed text.
   private readPhoneCell(cell: ExcelJS.Cell): string {
     const fromValue = normalizePhoneNumber(this.phoneCellRaw(cell.value));

@@ -1095,7 +1095,7 @@ export class AccountsService {
       throw new Error('Mobile Number is missing');
     }
     if (!isSupportedPhoneNumber(phoneNumber)) {
-      throw new Error('phone number is not 9 or 10 digits');
+      throw new Error('phone number is not 8, 9 or 10 digits');
     }
 
     if (existingPhones.has(phoneNumber)) {

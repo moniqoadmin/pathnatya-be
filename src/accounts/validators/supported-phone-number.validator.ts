@@ -6,8 +6,8 @@ import {
 } from 'class-validator';
 
 // US, UK and India phone numbers, taken WITHOUT any country-code prefix /
-// extension. Numbers are 9 or 10 digits.
-const PHONE_PATTERN = /^\d{9,10}$/;
+// extension. Numbers are 8, 9 or 10 digits.
+const PHONE_PATTERN = /^\d{8,10}$/;
 
 export function normalizePhoneNumber(value: unknown): string {
   if (value === null || value === undefined) {
@@ -50,7 +50,7 @@ export function IsSupportedPhoneNumber(validationOptions?: ValidationOptions) {
           return isSupportedPhoneNumber(value);
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a 9 or 10-digit US, UK or India phone number with no country code or extension`;
+          return `${args.property} must be an 8, 9 or 10-digit US, UK or India phone number with no country code or extension`;
         },
       },
     });
