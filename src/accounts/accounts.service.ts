@@ -42,7 +42,10 @@ import {
   TEMPLATE_SHEET_NAME,
   normalizeHeader,
 } from './accounts.template';
-import { isSupportedPhoneNumber } from './validators/supported-phone-number.validator';
+import {
+  isSupportedPhoneNumber,
+  normalizePhoneNumber,
+} from './validators/supported-phone-number.validator';
 import { LoginProtectionService } from './login-protection.service';
 import { PasswordVerificationService } from './password-verification.service';
 import {
@@ -1092,7 +1095,7 @@ export class AccountsService {
       throw new Error('Mobile Number is missing');
     }
     if (!isSupportedPhoneNumber(phoneNumber)) {
-      throw new Error('phone number is not 10 digits');
+      throw new Error('phone number is not 9 or 10 digits');
     }
 
     if (existingPhones.has(phoneNumber)) {
@@ -1174,7 +1177,7 @@ export class AccountsService {
   }
 
   private normalizePhone(raw: string | undefined): string {
-    return (raw ?? '').trim().replace(/\.0$/, '');
+    return normalizePhoneNumber(raw);
   }
 
   private buildRowError(

@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   registerDecorator,
   ValidationArguments,
@@ -8,15 +9,26 @@ import {
 // extension. Numbers are 9 or 10 digits.
 const PHONE_PATTERN = /^\d{9,10}$/;
 
-export function isSupportedPhoneNumber(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
+export function normalizePhoneNumber(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
   }
-  return PHONE_PATTERN.test(value);
+  return String(value)
+    .trim()
+    .replace(/\.0(?=\D*$)/, '')
+    .replace(/\D/g, '');
+}
+
+export function isSupportedPhoneNumber(value: unknown): value is string {
+  return PHONE_PATTERN.test(normalizePhoneNumber(value));
 }
 
 export function IsSupportedPhoneNumber(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string) {
+    Transform(({ value }) => {
+      const normalized = normalizePhoneNumber(value);
+      return normalized || value;
+    })(object, propertyName);
     registerDecorator({
       name: 'isSupportedPhoneNumber',
       target: object.constructor,

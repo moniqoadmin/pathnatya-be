@@ -15,7 +15,10 @@ import {
   TEMPLATE_COLUMNS,
   normalizeHeader,
 } from './accounts.template';
-import { isSupportedPhoneNumber } from './validators/supported-phone-number.validator';
+import {
+  isSupportedPhoneNumber,
+  normalizePhoneNumber,
+} from './validators/supported-phone-number.validator';
 
 export interface BulkUploadError {
   row: number;
@@ -563,10 +566,7 @@ export class BulkAccountsUploadService {
   }
 
   private normalizePhone(raw: string | undefined): string {
-    return (raw ?? '')
-      .trim()
-      .replace(/\.0(?=\D*$)/, '')
-      .replace(/\D/g, '');
+    return normalizePhoneNumber(raw);
   }
 
   private buildRowError(

@@ -3,7 +3,10 @@ import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { IsSupportedPhoneNumber } from '../validators/supported-phone-number.validator';
 
 export class LoginDto {
-  @ApiProperty({ example: '9876543210' })
+  @ApiProperty({
+    example: '9876543210',
+    description: '9 or 10-digit phone number. No country code or extension.',
+  })
   @IsSupportedPhoneNumber()
   phoneNumber: string;
 
