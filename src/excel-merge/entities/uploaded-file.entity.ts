@@ -34,7 +34,27 @@ export class MergeUploadedFile {
   @Column({ name: 'file_size', type: 'int' })
   fileSize: number;
 
-  @Column({ name: 'file_data', type: 'bytea', nullable: true, select: false })
+  @Column({
+    name: 'file_data',
+    type: 'bytea',
+    nullable: true,
+    select: false,
+    transformer: {
+      to: (value: Buffer | null) => value,
+      from: (value: unknown) => {
+        if (value === null || value === undefined) {
+          return null;
+        }
+        if (Buffer.isBuffer(value)) {
+          return Buffer.from(value);
+        }
+        if (value instanceof Uint8Array) {
+          return Buffer.from(value);
+        }
+        return value as Buffer;
+      },
+    },
+  })
   fileData: Buffer | null;
 
   @Column({ type: 'varchar', length: 32, default: MergeFileStatus.UPLOADED })

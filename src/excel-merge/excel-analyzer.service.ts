@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { cellToString, inferType } from './excel-cell.util';
+import { toExcelArrayBuffer } from './excel-buffer.util';
 import {
   DetectedColumn,
   ExcelAnalysis,
@@ -14,12 +15,7 @@ const SAMPLE_ROWS = 25;
 @Injectable()
 export class ExcelAnalyzerService {
   async analyze(buffer: Buffer): Promise<ExcelAnalysis> {
-    const workbook = new ExcelJS.Workbook();
-    try {
-      await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
-    } catch {
-      throw new BadRequestException('Could not read the uploaded Excel file');
-    }
+    const workbook = await this.loadWorkbook(buffer);
 
     if (workbook.worksheets.length === 0) {
       throw new BadRequestException('The uploaded Excel file has no sheets');
@@ -44,12 +40,14 @@ export class ExcelAnalyzerService {
     };
   }
 
-  async loadWorkbook(buffer: Buffer): Promise<ExcelJS.Workbook> {
+  async loadWorkbook(buffer: unknown): Promise<ExcelJS.Workbook> {
     const workbook = new ExcelJS.Workbook();
     try {
-      await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+      await workbook.xlsx.load(toExcelArrayBuffer(buffer));
     } catch {
-      throw new BadRequestException('Could not read the uploaded Excel file');
+      throw new BadRequestException(
+        'Could not read the Excel file. Re-upload the original .xlsx and try mapping again.',
+      );
     }
     return workbook;
   }

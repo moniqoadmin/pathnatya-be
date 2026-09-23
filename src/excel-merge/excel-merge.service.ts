@@ -13,6 +13,7 @@ import {
   toColumnKey,
   unexpectedHeaders,
 } from './excel-cell.util';
+import { isXlsxZip, toExcelBuffer } from './excel-buffer.util';
 import {
   ConfirmMappingDto,
   CreateMergeTaskDto,
@@ -412,7 +413,14 @@ export class ExcelMergeService {
     file.columnMapping = resolved;
     file.status = MergeFileStatus.MAPPING_CONFIRMED;
     file.failureMessage = null;
-    await this.files.save(file);
+    await this.files.update(file.id, {
+      columnMapping: resolved,
+      status: MergeFileStatus.MAPPING_CONFIRMED,
+      failureMessage: null,
+      selectedSheet: file.selectedSheet,
+      headerRow: file.headerRow,
+      analysis: file.analysis,
+    });
 
     task.columnMappings = learned;
     await this.tasks.save(task);
@@ -434,7 +442,7 @@ export class ExcelMergeService {
     }
     if (!file.fileData) {
       throw new BadRequestException(
-        'Original file data is no longer available',
+        'Original Excel file is no longer available. Please re-upload the file.',
       );
     }
 
@@ -449,7 +457,9 @@ export class ExcelMergeService {
     }
 
     file.status = MergeFileStatus.PROCESSING;
-    await this.files.save(file);
+    await this.files.update(file.id, {
+      status: MergeFileStatus.PROCESSING,
+    });
 
     try {
       const workbook = await this.analyzer.loadWorkbook(file.fileData);
@@ -548,14 +558,24 @@ export class ExcelMergeService {
       file.status = MergeFileStatus.PROCESSED;
       file.processedAt = new Date();
       file.failureMessage = null;
-      await this.files.save(file);
+      await this.files.update(file.id, {
+        totalRows,
+        validCount,
+        errorCount,
+        status: MergeFileStatus.PROCESSED,
+        processedAt: file.processedAt,
+        failureMessage: null,
+      });
 
       return this.getFile(taskId, fileId);
     } catch (error) {
       file.status = MergeFileStatus.FAILED;
       file.failureMessage =
         error instanceof Error ? error.message : 'Failed to process file';
-      await this.files.save(file);
+      await this.files.update(file.id, {
+        status: MergeFileStatus.FAILED,
+        failureMessage: file.failureMessage,
+      });
       throw error;
     }
   }
@@ -769,42 +789,57 @@ export class ExcelMergeService {
   ) {
     if (!this.isExcel(file)) {
       throw new BadRequestException(
-        `"${file.originalname}" is not an Excel file`,
+        `"${file.originalname}" is not an Excel file. Upload a .xlsx file.`,
+      );
+    }
+    if (!isXlsxZip(file.buffer)) {
+      throw new BadRequestException(
+        `"${file.originalname}" is not a valid .xlsx file`,
       );
     }
 
+    const fileBytes = toExcelBuffer(file.buffer);
     const saved = await this.files.save(
       this.files.create({
         taskId,
         fileName: file.originalname,
-        fileSize: file.size,
-        fileData: file.buffer,
+        fileSize: fileBytes.length,
+        fileData: fileBytes,
         status: MergeFileStatus.UPLOADED,
         uploadedBy,
       }),
     );
 
     try {
-      const analysis = await this.analyzer.analyze(file.buffer);
-      saved.analysis = analysis;
-      saved.selectedSheet = analysis.selectedSheet;
-      saved.headerRow = analysis.headerRow;
-
+      const analysis = await this.analyzer.analyze(fileBytes);
       const task = await this.requireTask(taskId);
+      saved.analysis = analysis;
       await this.enforceFrozenHeaders(
         task,
         analysis.columns.map((column) => column.header),
         saved,
       );
 
+      await this.files.update(saved.id, {
+        analysis,
+        selectedSheet: analysis.selectedSheet,
+        headerRow: analysis.headerRow,
+        status: MergeFileStatus.ANALYZED,
+        failureMessage: null,
+      });
+      saved.selectedSheet = analysis.selectedSheet;
+      saved.headerRow = analysis.headerRow;
       saved.status = MergeFileStatus.ANALYZED;
       saved.failureMessage = null;
-      await this.files.save(saved);
     } catch (error) {
-      saved.status = MergeFileStatus.FAILED;
-      saved.failureMessage =
+      const failureMessage =
         error instanceof Error ? error.message : 'Could not analyze file';
-      await this.files.save(saved);
+      await this.files.update(saved.id, {
+        status: MergeFileStatus.FAILED,
+        failureMessage,
+      });
+      saved.status = MergeFileStatus.FAILED;
+      saved.failureMessage = failureMessage;
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -1135,12 +1170,20 @@ export class ExcelMergeService {
     if (!file) {
       throw new NotFoundException('Uploaded file not found');
     }
+    if (withData) {
+      if (!file.fileData || !isXlsxZip(file.fileData)) {
+        throw new BadRequestException(
+          'Original Excel file is no longer available. Please re-upload the file.',
+        );
+      }
+      file.fileData = toExcelBuffer(file.fileData);
+    }
     return file;
   }
 
   private isExcel(file: Express.Multer.File): boolean {
     const name = file.originalname.toLowerCase();
-    return name.endsWith('.xlsx') || name.endsWith('.xls');
+    return name.endsWith('.xlsx');
   }
 
   private exportCell(value: unknown): string | number | boolean | Date | null {
