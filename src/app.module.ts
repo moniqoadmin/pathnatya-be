@@ -19,6 +19,7 @@ import { IssuesModule } from './issues/issues.module';
 import { ImportsModule } from './imports/imports.module';
 import { AuditTrailModule } from './audit-trail/audit-trail.module';
 import { EntitlementsModule } from './entitlements/entitlements.module';
+import { ExcelMergeModule } from './excel-merge/excel-merge.module';
 
 function loadTestKeyMatches(
   provided: string | string[] | undefined,
@@ -81,6 +82,7 @@ function loadTestKeyMatches(
     ImportsModule,
     AuditTrailModule,
     EntitlementsModule,
+    ExcelMergeModule,
   ],
   controllers: [AppController],
   providers: [
