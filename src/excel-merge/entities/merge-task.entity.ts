@@ -6,7 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { SavedColumnMapping } from '../excel-merge.types';
+import { SavedColumnMapping, TaskSummaryConfig } from '../excel-merge.types';
 import { MergeTaskColumn } from './task-column.entity';
 import { MergeUploadedFile } from './uploaded-file.entity';
 
@@ -36,8 +36,9 @@ export class MergeTask {
   columnMappings: Record<string, SavedColumnMapping>;
 
   /**
-   * Column names locked from the first successfully analyzed Excel file.
-   * Later uploads may not introduce any new names.
+   * Deprecated. Older tasks stored the first file's headers here and treated
+   * them as a permanent lock. The column is retained so existing rows still
+   * load; the output format is `columns` and may grow after processing.
    */
   @Column({
     name: 'frozen_headers',
@@ -45,6 +46,10 @@ export class MergeTask {
     default: () => "'[]'",
   })
   frozenHeaders: string[];
+
+  /** Pivot setup for the Summary sheet. Null until the user saves one. */
+  @Column({ name: 'summary_config', type: 'jsonb', nullable: true })
+  summaryConfig: TaskSummaryConfig | null;
 
   @OneToMany(() => MergeTaskColumn, (column) => column.task)
   columns?: MergeTaskColumn[];

@@ -28,7 +28,15 @@ export function validateMappedRow(
     try {
       const parsed = parseValue(column, raw);
       data[column.key] = parsed;
-      if (column.required && isEmpty(parsed)) {
+      if (column.primary && isEmpty(parsed)) {
+        fieldErrors.push({
+          columnKey: column.key,
+          label: column.label,
+          message: `${column.label} is the primary column and is required`,
+          originalValue,
+          currentValue: raw ?? null,
+        });
+      } else if (column.required && isEmpty(parsed)) {
         fieldErrors.push({
           columnKey: column.key,
           label: column.label,
@@ -72,6 +80,97 @@ function originalForColumn(
 
 function isEmpty(value: unknown): boolean {
   return value === null || value === undefined || String(value).trim() === '';
+}
+
+/** Comparable identity for a primary-column value. Empty values have no key. */
+export function primaryValueKey(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? `number:${value}` : null;
+  }
+  if (typeof value === 'boolean') {
+    return `boolean:${value}`;
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return null;
+  }
+  return `text:${text.toLowerCase()}`;
+}
+
+/**
+ * Tracks primary values already merged and values accepted from the current file.
+ * A value is remembered only after the caller accepts the row.
+ */
+export class PrimaryValueIndex {
+  private readonly merged = new Set<string>();
+  private readonly acceptedInFile = new Set<string>();
+
+  constructor(existingValues: unknown[]) {
+    for (const value of existingValues) {
+      const key = primaryValueKey(value);
+      if (key) {
+        this.merged.add(key);
+      }
+    }
+  }
+
+  check(
+    column: MergeTaskColumn,
+    value: unknown,
+    scope: 'file' | 'request' = 'file',
+  ): FieldError | null {
+    const key = primaryValueKey(value);
+    if (!key) {
+      return null;
+    }
+    if (this.merged.has(key)) {
+      return primaryFieldError(
+        column,
+        value,
+        `${column.label} "${displayPrimary(value)}" is already in the merged data`,
+      );
+    }
+    if (this.acceptedInFile.has(key)) {
+      const where = scope === 'request' ? 'this request' : 'this file';
+      return primaryFieldError(
+        column,
+        value,
+        `${column.label} "${displayPrimary(value)}" is duplicated in ${where}`,
+      );
+    }
+    return null;
+  }
+
+  remember(value: unknown) {
+    const key = primaryValueKey(value);
+    if (key) {
+      this.acceptedInFile.add(key);
+    }
+  }
+}
+
+function displayPrimary(value: unknown): string {
+  if (typeof value === 'boolean') {
+    return value ? 'yes' : 'no';
+  }
+  return String(value).trim();
+}
+
+function primaryFieldError(
+  column: MergeTaskColumn,
+  value: unknown,
+  message: string,
+): FieldError {
+  return {
+    columnKey: column.key,
+    label: column.label,
+    message,
+    originalValue: value,
+    currentValue: value,
+  };
 }
 
 function parseValue(column: MergeTaskColumn, raw: unknown): unknown {

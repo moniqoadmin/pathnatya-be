@@ -13,28 +13,6 @@ export function normalizeHeader(value: string): string {
     .trim();
 }
 
-export function unexpectedHeaders(
-  frozenHeaders: string[],
-  detectedHeaders: string[],
-): string[] {
-  const allowed = new Set(
-    frozenHeaders.map(normalizeHeader).filter((header) => header.length > 0),
-  );
-  const seen = new Set<string>();
-  const extra: string[] = [];
-  for (const header of detectedHeaders) {
-    const normalized = normalizeHeader(header);
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    if (!allowed.has(normalized)) {
-      extra.push(header);
-    }
-  }
-  return extra;
-}
-
 export function toColumnKey(label: string, used: Set<string>): string {
   let base = label
     .normalize('NFKD')

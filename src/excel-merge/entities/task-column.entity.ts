@@ -26,7 +26,7 @@ export class MergeTaskColumn {
   @JoinColumn({ name: 'task_id' })
   task?: MergeTask;
 
-  /** Stable JSONB key used in task_data / task_errors, e.g. mobile_number */
+  /** Stable JSONB key used in task_data / task_errors, e.g. mobile_number. */
   @Column({ length: 80 })
   key: string;
 
@@ -38,6 +38,10 @@ export class MergeTaskColumn {
 
   @Column({ type: 'boolean', default: false })
   required: boolean;
+
+  /** Identity column for this task. At most one column is primary. */
+  @Column({ type: 'boolean', default: false })
+  primary: boolean;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number;

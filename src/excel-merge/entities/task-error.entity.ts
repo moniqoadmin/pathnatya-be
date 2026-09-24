@@ -40,7 +40,7 @@ export class MergeTaskError {
   @Column({ name: 'original_data', type: 'jsonb', default: () => "'{}'" })
   originalData: Record<string, unknown>;
 
-  /** Current mapped values (after user edits). Keyed by master column key. */
+  /** Current mapped values (after user edits). Keyed by output column key. */
   @Column({ name: 'mapped_data', type: 'jsonb', default: () => "'{}'" })
   mappedData: Record<string, unknown>;
 

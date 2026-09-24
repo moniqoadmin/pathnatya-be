@@ -23,18 +23,20 @@ export class MergeTaskData {
   @JoinColumn({ name: 'task_id' })
   task?: MergeTask;
 
+  /** Null when the row was added directly to the merged data. */
   @Index()
-  @Column({ name: 'file_id', type: 'uuid' })
-  fileId: string;
+  @Column({ name: 'file_id', type: 'uuid', nullable: true })
+  fileId: string | null;
 
-  @ManyToOne(() => MergeUploadedFile, { onDelete: 'CASCADE' })
+  @ManyToOne(() => MergeUploadedFile, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'file_id' })
-  file?: MergeUploadedFile;
+  file?: MergeUploadedFile | null;
 
-  @Column({ name: 'source_row_number', type: 'int' })
-  sourceRowNumber: number;
+  /** Null when the row was added directly and did not come from an Excel row. */
+  @Column({ name: 'source_row_number', type: 'int', nullable: true })
+  sourceRowNumber: number | null;
 
-  /** Values keyed by master column key, ready for export. */
+  /** Values keyed by output column key. Missing keys are blank in export. */
   @Column({ type: 'jsonb', default: () => "'{}'" })
   data: Record<string, unknown>;
 

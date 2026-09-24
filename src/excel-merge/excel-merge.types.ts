@@ -62,6 +62,28 @@ export type ExcelAnalysis = {
   columns: DetectedColumn[];
 };
 
+export type SummaryFilter = {
+  column: string;
+  equals: string | number | boolean;
+};
+
+export type SummaryMetric = {
+  label: string;
+  op: 'count' | 'sum';
+  /** Number column to add. Required when op is sum. */
+  column?: string;
+  /** Rows must match every filter. A count with no filters counts every row in the group. */
+  when?: SummaryFilter[];
+};
+
+/** Saved per task. rowColumn is each block, columnColumn is the headers inside it. */
+export type TaskSummaryConfig = {
+  rowColumn: string;
+  columnColumn: string;
+  totalLabel: string;
+  metrics: SummaryMetric[];
+};
+
 export type FieldError = {
   columnKey: string;
   label: string;

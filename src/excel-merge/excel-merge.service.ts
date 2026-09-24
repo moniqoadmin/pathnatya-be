@@ -7,44 +7,58 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as ExcelJS from 'exceljs';
 import { FindOptionsWhere, Repository } from 'typeorm';
 import { ExcelAnalyzerService } from './excel-analyzer.service';
-import {
-  cellToString,
-  normalizeHeader,
-  toColumnKey,
-  unexpectedHeaders,
-} from './excel-cell.util';
+import { cellToString, normalizeHeader, toColumnKey } from './excel-cell.util';
 import { isXlsxZip, toExcelBuffer } from './excel-buffer.util';
 import {
+  BulkCreateTaskDataDto,
+  BulkUpdateTaskDataDto,
   ConfirmMappingDto,
   CreateMergeTaskDto,
   CreateTaskColumnDto,
+  CreateTaskDataDto,
+  SaveTaskSummaryDto,
   UpdateMergeTaskDto,
   UpdateTaskColumnDto,
+  UpdateTaskDataDto,
   UpdateTaskErrorDto,
 } from './dto/excel-merge.dto';
 import {
+  ExportTaskDataQueryDto,
   ListMergeFilesQueryDto,
   ListMergeTasksQueryDto,
+  ListSortOrder,
   ListTaskDataQueryDto,
   ListTaskErrorsQueryDto,
+  MERGE_ERROR_SORT_FIELDS,
+  MERGE_FILE_SORT_FIELDS,
+  MERGE_ROW_SORT_FIELDS,
+  MERGE_TASK_SORT_FIELDS,
 } from './dto/list-excel-merge-query.dto';
 import { MergeTaskColumn } from './entities/task-column.entity';
 import { MergeTaskData } from './entities/task-data.entity';
 import { MergeTaskError } from './entities/task-error.entity';
 import { MergeTask } from './entities/merge-task.entity';
 import { MergeUploadedFile } from './entities/uploaded-file.entity';
-import { validateMappedRow } from './excel-row.validator';
+import {
+  PrimaryValueIndex,
+  RowValidationResult,
+  validateMappedRow,
+} from './excel-row.validator';
 import {
   DetectedColumn,
+  FieldError,
   FileColumnMapping,
   MergeErrorStatus,
   MergeFileStatus,
   SavedColumnMapping,
   SuggestedMapping,
+  SummaryMetric,
   TaskColumnDataType,
+  TaskSummaryConfig,
 } from './excel-merge.types';
 
 const FILE_BATCH = 500;
+const BULK_DATA_LIMIT = 500;
 
 @Injectable()
 export class ExcelMergeService {
@@ -69,6 +83,7 @@ export class ExcelMergeService {
         description: dto.description?.trim() || null,
         createdBy,
         columnMappings: {},
+        // Deprecated column. Output format is the task's columns.
         frozenHeaders: [],
       }),
     );
@@ -84,7 +99,12 @@ export class ExcelMergeService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const [rows, total] = await this.tasks.findAndCount({
-      order: { createdAt: 'DESC' },
+      order: this.entityOrder(
+        query.sort,
+        query.order,
+        MERGE_TASK_SORT_FIELDS,
+        { createdAt: 'DESC' },
+      ),
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -136,7 +156,32 @@ export class ExcelMergeService {
       validCount,
       pendingErrorCount,
       columnMappings: task.columnMappings,
+      summary: task.summaryConfig ?? null,
     };
+  }
+
+  async getSummary(taskId: string) {
+    const task = await this.requireTask(taskId);
+    return { summary: task.summaryConfig ?? null };
+  }
+
+  async updateSummary(taskId: string, dto: SaveTaskSummaryDto) {
+    const task = await this.requireTask(taskId);
+    const columns = await this.loadColumns(taskId);
+    const summary = this.checkedSummary(columns, {
+      rowColumn: dto.rowColumn,
+      columnColumn: dto.columnColumn,
+      totalLabel: dto.totalLabel.trim(),
+      metrics: dto.metrics.map((metric) => ({
+        label: metric.label.trim(),
+        op: metric.op,
+        column: metric.column,
+        when: metric.when,
+      })),
+    });
+    task.summaryConfig = summary;
+    await this.tasks.save(task);
+    return { summary };
   }
 
   async updateTask(taskId: string, dto: UpdateMergeTaskDto) {
@@ -167,24 +212,31 @@ export class ExcelMergeService {
   }
 
   async addColumns(taskId: string, dtos: CreateTaskColumnDto[]) {
-    const task = await this.requireTask(taskId);
-    this.assertSchemaUnlocked(task, 'add columns');
+    await this.requireTask(taskId);
+    this.assertSinglePrimary(dtos.filter((dto) => dto.primary).length);
+    if (dtos.some((dto) => dto.primary)) {
+      await this.columns.update({ taskId }, { primary: false });
+    }
     const existing = await this.columns.find({ where: { taskId } });
     const used = new Set(existing.map((column) => column.key));
+    const knownLabels = existing.map((column) => column.label);
     let sortOrder =
       existing.reduce((max, column) => Math.max(max, column.sortOrder), -1) + 1;
 
     const created = dtos.map((dto) => {
-      const label = dto.label.trim();
-      if (!label) {
-        throw new BadRequestException('Column label cannot be empty');
-      }
+      const label = this.outputColumnLabel(dto.label);
+      this.assertUniqueOutputLabel(
+        knownLabels.map((existingLabel) => ({ label: existingLabel })),
+        label,
+      );
+      knownLabels.push(label);
       const column = this.columns.create({
         taskId,
         key: toColumnKey(label, used),
         label,
         dataType: dto.dataType ?? TaskColumnDataType.STRING,
         required: dto.required ?? false,
+        primary: dto.primary ?? false,
         sortOrder: dto.sortOrder ?? sortOrder,
       });
       sortOrder += 1;
@@ -202,19 +254,25 @@ export class ExcelMergeService {
   ) {
     const column = await this.requireColumn(taskId, columnId);
     if (dto.label !== undefined) {
-      const task = await this.requireTask(taskId);
-      if (this.isSchemaFrozen(task)) {
-        throw new BadRequestException(
-          'Column names are frozen from the first uploaded file and cannot be renamed',
-        );
-      }
-      column.label = dto.label.trim();
+      const label = this.outputColumnLabel(dto.label);
+      const existing = await this.columns.find({ where: { taskId } });
+      this.assertUniqueOutputLabel(
+        existing.filter((item) => item.id !== column.id),
+        label,
+      );
+      column.label = label;
     }
     if (dto.dataType !== undefined) {
       column.dataType = dto.dataType;
     }
     if (dto.required !== undefined) {
       column.required = dto.required;
+    }
+    if (dto.primary === true) {
+      await this.columns.update({ taskId }, { primary: false });
+      column.primary = true;
+    } else if (dto.primary === false) {
+      column.primary = false;
     }
     if (dto.sortOrder !== undefined) {
       column.sortOrder = dto.sortOrder;
@@ -224,8 +282,7 @@ export class ExcelMergeService {
   }
 
   async deleteColumn(taskId: string, columnId: string) {
-    const task = await this.requireTask(taskId);
-    this.assertSchemaUnlocked(task, 'remove columns');
+    await this.requireTask(taskId);
     await this.requireColumn(taskId, columnId);
     await this.columns.delete({ id: columnId, taskId });
     return { deleted: true };
@@ -260,7 +317,12 @@ export class ExcelMergeService {
     }
     const [rows, total] = await this.files.findAndCount({
       where,
-      order: { createdAt: 'DESC' },
+      order: this.entityOrder(
+        query.sort,
+        query.order,
+        MERGE_FILE_SORT_FIELDS,
+        { createdAt: 'DESC' },
+      ),
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -305,110 +367,28 @@ export class ExcelMergeService {
       );
     }
 
-    await this.enforceFrozenHeaders(
-      task,
-      file.analysis.columns.map((column) => column.header),
-      file,
-    );
-
-    const detectedHeaders = new Set(
-      file.analysis.columns.map((column) => column.header),
-    );
-    for (const mapping of dto.mappings) {
-      if (!detectedHeaders.has(mapping.sourceHeader)) {
-        throw new BadRequestException(
-          `Uploaded file has no column named "${mapping.sourceHeader}"`,
-        );
-      }
+    const columns = await this.columns.find({ where: { taskId } });
+    const planned = this.planMappings(dto, file, columns);
+    if (planned.creates.some((item) => item.primary)) {
+      await this.columns.update({ taskId }, { primary: false });
     }
-
-    let columns = await this.columns.find({ where: { taskId } });
-    const usedKeys = new Set(columns.map((column) => column.key));
-    let nextOrder =
-      columns.reduce((max, column) => Math.max(max, column.sortOrder), -1) + 1;
-
-    const resolved: FileColumnMapping[] = [];
-    const learned: Record<string, SavedColumnMapping> = {
-      ...task.columnMappings,
-    };
-
-    for (const mapping of dto.mappings) {
-      const detected = file.analysis.columns.find(
-        (column) => column.header === mapping.sourceHeader,
-      );
-      if (!detected) {
-        continue;
-      }
-
-      if (mapping.action === 'ignore') {
-        const item: FileColumnMapping = {
-          sourceHeader: mapping.sourceHeader,
-          sourceIndex: detected.index,
-          action: 'ignore',
-          columnKey: null,
-        };
-        resolved.push(item);
-        learned[normalizeHeader(mapping.sourceHeader)] = {
-          sourceHeader: mapping.sourceHeader,
-          action: 'ignore',
-          columnKey: null,
-        };
-        continue;
-      }
-
-      let columnKey = mapping.columnKey ?? null;
-      if (mapping.action === 'create') {
-        this.assertSchemaUnlocked(task, 'add a new master column from mapping');
-        const label = mapping.label?.trim() || mapping.sourceHeader;
-        const created = await this.columns.save(
+    if (planned.creates.length) {
+      await this.columns.save(
+        planned.creates.map((item) =>
           this.columns.create({
             taskId,
-            key: toColumnKey(label, usedKeys),
-            label,
-            dataType: mapping.dataType ?? detected.inferredType,
-            required: mapping.required ?? false,
-            sortOrder: nextOrder,
+            key: item.columnKey,
+            label: item.label,
+            dataType: item.dataType,
+            required: item.required,
+            primary: item.primary,
+            sortOrder: item.sortOrder,
           }),
-        );
-        nextOrder += 1;
-        columnKey = created.key;
-        columns = [...columns, created];
-      }
-
-      if (!columnKey) {
-        throw new BadRequestException(
-          `Mapping for "${mapping.sourceHeader}" needs a master column`,
-        );
-      }
-      const master = columns.find((column) => column.key === columnKey);
-      if (!master) {
-        throw new BadRequestException(
-          `Unknown master column "${columnKey}" for "${mapping.sourceHeader}"`,
-        );
-      }
-
-      const item: FileColumnMapping = {
-        sourceHeader: mapping.sourceHeader,
-        sourceIndex: detected.index,
-        action: 'map',
-        columnKey,
-      };
-      resolved.push(item);
-      learned[normalizeHeader(mapping.sourceHeader)] = {
-        sourceHeader: mapping.sourceHeader,
-        action: 'map',
-        columnKey,
-      };
-    }
-
-    const mappedKeys = resolved
-      .filter((item) => item.action === 'map')
-      .map((item) => item.columnKey);
-    if (new Set(mappedKeys).size !== mappedKeys.length) {
-      throw new BadRequestException(
-        'Two uploaded columns cannot map to the same master column',
+        ),
       );
     }
+
+    const resolved = planned.resolved;
 
     file.columnMapping = resolved;
     file.status = MergeFileStatus.MAPPING_CONFIRMED;
@@ -422,7 +402,10 @@ export class ExcelMergeService {
       analysis: file.analysis,
     });
 
-    task.columnMappings = learned;
+    task.columnMappings = {
+      ...(task.columnMappings ?? {}),
+      ...planned.learned,
+    };
     await this.tasks.save(task);
 
     const shouldProcess = dto.process !== false;
@@ -452,7 +435,7 @@ export class ExcelMergeService {
     });
     if (columns.length === 0) {
       throw new BadRequestException(
-        'Add at least one master column before processing',
+        'Add at least one output column before processing',
       );
     }
 
@@ -478,6 +461,14 @@ export class ExcelMergeService {
       const mappedColumns = file.columnMapping.filter(
         (item) => item.action === 'map' && item.columnKey,
       );
+      const primary = this.primaryColumn(columns);
+      const primaryIndex = primary
+        ? new PrimaryValueIndex(
+            (await this.data.find({ where: { taskId } })).map(
+              (row) => row.data?.[primary.key],
+            ),
+          )
+        : null;
 
       let totalRows = 0;
       let validCount = 0;
@@ -511,6 +502,7 @@ export class ExcelMergeService {
         }
 
         const result = validateMappedRow(columns, mapped, originalData);
+        this.applyPrimaryCheck(primary, primaryIndex, result);
         if (result.valid) {
           validCount += 1;
           pendingValid.push(
@@ -584,29 +576,34 @@ export class ExcelMergeService {
     await this.requireTask(taskId);
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
-    const where: FindOptionsWhere<MergeTaskData> = { taskId };
-    if (query.fileId) {
-      where.fileId = query.fileId;
-    }
-    const [rows, total] = await this.data.findAndCount({
-      where,
-      relations: { file: true },
-      order: { createdAt: 'ASC' },
-      skip: (page - 1) * limit,
-      take: limit,
+    const columnRows = await this.columns.find({
+      where: { taskId },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
-    const columns = await this.listColumns(taskId);
+    const orders = this.valueOrder(
+      'data',
+      columnRows,
+      query.sort,
+      query.order,
+      [{ expression: 'row.createdAt', direction: 'ASC' }],
+      MERGE_ROW_SORT_FIELDS,
+    );
+    const qb = this.data
+      .createQueryBuilder('row')
+      .leftJoinAndSelect('row.file', 'file')
+      .where('row.taskId = :taskId', { taskId });
+    if (query.fileId) {
+      qb.andWhere('row.fileId = :fileId', { fileId: query.fileId });
+    }
+    this.applyOrder(qb, orders);
+    const [rows, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    const columns = columnRows.map((column) => this.toColumn(column));
     return {
       columns,
-      data: rows.map((row) => ({
-        id: row.id,
-        fileId: row.fileId,
-        fileName: row.file?.fileName ?? null,
-        sourceRowNumber: row.sourceRowNumber,
-        values: row.data,
-        originalValues: row.originalData,
-        createdAt: row.createdAt,
-      })),
+      data: rows.map((row) => this.toDataRow(row, columns)),
       page,
       limit,
       total,
@@ -614,26 +611,83 @@ export class ExcelMergeService {
     };
   }
 
+  async getData(taskId: string, dataId: string) {
+    await this.requireTask(taskId);
+    const columns = await this.loadColumns(taskId);
+    const row = await this.requireDataRow(taskId, dataId);
+    return this.toDataRow(row, columns);
+  }
+
+  async createData(taskId: string, dto: CreateTaskDataDto) {
+    const [row] = await this.insertDataRows(taskId, [dto]);
+    return row;
+  }
+
+  async createDataBulk(taskId: string, dto: BulkCreateTaskDataDto) {
+    const data = await this.insertDataRows(taskId, dto.rows);
+    return { count: data.length, data };
+  }
+
+  async updateData(taskId: string, dataId: string, dto: UpdateTaskDataDto) {
+    const [row] = await this.applyDataChanges(
+      taskId,
+      [{ id: dataId, values: dto.values }],
+      true,
+    );
+    return row;
+  }
+
+  async updateDataBulk(taskId: string, dto: BulkUpdateTaskDataDto) {
+    const data = await this.applyDataChanges(
+      taskId,
+      this.bulkDataChanges(dto),
+    );
+    return { updated: true, count: data.length, data };
+  }
+
+  async deleteData(taskId: string, dataId: string) {
+    await this.deleteDataRows(taskId, [dataId]);
+    return { deleted: true };
+  }
+
+  async deleteDataBulk(taskId: string, ids: string[]) {
+    const count = await this.deleteDataRows(taskId, ids);
+    return { deleted: true, count };
+  }
+
   async listErrors(taskId: string, query: ListTaskErrorsQueryDto) {
     await this.requireTask(taskId);
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
-    const where: FindOptionsWhere<MergeTaskError> = { taskId };
-    where.status = query.status ?? MergeErrorStatus.PENDING;
-    if (query.fileId) {
-      where.fileId = query.fileId;
-    }
-    const [rows, total] = await this.errors.findAndCount({
-      where,
-      relations: { file: true },
-      order: { sourceRowNumber: 'ASC', createdAt: 'ASC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const status = query.status ?? MergeErrorStatus.PENDING;
     const columns = await this.columns.find({
       where: { taskId },
-      order: { sortOrder: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
+    const orders = this.valueOrder(
+      'mappedData',
+      columns,
+      query.sort,
+      query.order,
+      [
+        { expression: 'row.sourceRowNumber', direction: 'ASC' },
+        { expression: 'row.createdAt', direction: 'ASC' },
+      ],
+      MERGE_ERROR_SORT_FIELDS,
+    );
+    const qb = this.errors
+      .createQueryBuilder('row')
+      .leftJoinAndSelect('row.file', 'file')
+      .where('row.taskId = :taskId', { taskId })
+      .andWhere('row.status = :status', { status });
+    if (query.fileId) {
+      qb.andWhere('row.fileId = :fileId', { fileId: query.fileId });
+    }
+    this.applyOrder(qb, orders);
+    const [rows, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
     return {
       data: rows.map((row) => this.toErrorReview(row, columns)),
       page,
@@ -661,6 +715,15 @@ export class ExcelMergeService {
 
     const mapped = { ...row.mappedData, ...dto.values };
     const result = validateMappedRow(columns, mapped, row.originalData);
+    const primary = this.primaryColumn(columns);
+    if (primary) {
+      const primaryIndex = new PrimaryValueIndex(
+        (await this.data.find({ where: { taskId } })).map(
+          (existing) => existing.data?.[primary.key],
+        ),
+      );
+      this.applyPrimaryCheck(primary, primaryIndex, result);
+    }
     row.mappedData = result.data;
     row.fieldErrors = result.fieldErrors;
 
@@ -703,7 +766,49 @@ export class ExcelMergeService {
     };
   }
 
-  async exportMaster(taskId: string): Promise<{
+  async deleteError(taskId: string, errorId: string) {
+    await this.deletePendingErrors(taskId, [errorId]);
+    return { deleted: true };
+  }
+
+  async deleteErrors(taskId: string, ids: string[]) {
+    const count = await this.deletePendingErrors(taskId, ids);
+    return { deleted: true, count };
+  }
+
+  private async deletePendingErrors(taskId: string, ids: string[]) {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) {
+      throw new BadRequestException('Choose at least one error row to delete');
+    }
+
+    const rows: MergeTaskError[] = [];
+    for (const id of unique) {
+      const row = await this.errors.findOne({ where: { id, taskId } });
+      if (!row) {
+        throw new NotFoundException('Error row not found');
+      }
+      if (row.status !== MergeErrorStatus.PENDING) {
+        throw new BadRequestException('Only pending error rows can be deleted');
+      }
+      rows.push(row);
+    }
+
+    const removedByFile = new Map<string, number>();
+    for (const row of rows) {
+      await this.errors.delete({ id: row.id, taskId });
+      removedByFile.set(row.fileId, (removedByFile.get(row.fileId) ?? 0) + 1);
+    }
+    for (const [fileId, count] of removedByFile) {
+      await this.files.decrement({ id: fileId }, 'errorCount', count);
+    }
+    return rows.length;
+  }
+
+  async exportMaster(
+    taskId: string,
+    query: ExportTaskDataQueryDto = {},
+  ): Promise<{
     buffer: Buffer;
     fileName: string;
   }> {
@@ -714,24 +819,43 @@ export class ExcelMergeService {
     });
     if (columns.length === 0) {
       throw new BadRequestException(
-        'This task has no master columns to export',
+        'This task has no output columns to export',
       );
     }
 
-    const rows = await this.data.find({
-      where: { taskId },
-      order: { createdAt: 'ASC' },
-    });
+    const orders = this.valueOrder(
+      'data',
+      columns,
+      query.sort,
+      query.order,
+      [{ expression: 'row.createdAt', direction: 'ASC' }],
+      MERGE_ROW_SORT_FIELDS,
+    );
+    const qb = this.data
+      .createQueryBuilder('row')
+      .leftJoinAndSelect('row.file', 'file')
+      .where('row.taskId = :taskId', { taskId });
+    this.applyOrder(qb, orders);
+    const rows = await qb.getMany();
 
+    const summary = await this.summaryForExport(task, columns, query);
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Master');
-    sheet.addRow(columns.map((column) => column.label));
-    for (const row of rows) {
-      sheet.addRow(
-        columns.map((column) => this.exportCell(row.data[column.key])),
+    const sheet = workbook.addWorksheet('Kendra');
+    sheet.addRow(['SN', ...columns.map((column) => column.label)]);
+    rows.forEach((row, index) => {
+      const values = this.projectOutputValues(
+        columns.map((column) => column.key),
+        row.data,
       );
+      sheet.addRow([
+        index + 1,
+        ...columns.map((column) => this.exportCell(values[column.key])),
+      ]);
+    });
+    this.paintTable(sheet);
+    if (summary?.metrics.length) {
+      this.writeSummarySheet(workbook, rows, summary);
     }
-    this.styleHeader(sheet);
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return {
@@ -764,16 +888,20 @@ export class ExcelMergeService {
       'Problems',
     ]);
     for (const row of rows) {
+      const values = this.projectOutputValues(
+        columns.map((column) => column.key),
+        row.mappedData,
+      );
       sheet.addRow([
         row.file?.fileName ?? row.fileId,
         row.sourceRowNumber,
-        ...columns.map((column) => this.exportCell(row.mappedData[column.key])),
+        ...columns.map((column) => this.exportCell(values[column.key])),
         row.fieldErrors
           .map((error) => `${error.label}: ${error.message}`)
           .join('; '),
       ]);
     }
-    this.styleHeader(sheet);
+    this.paintTable(sheet);
 
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
     return {
@@ -812,13 +940,7 @@ export class ExcelMergeService {
 
     try {
       const analysis = await this.analyzer.analyze(fileBytes);
-      const task = await this.requireTask(taskId);
       saved.analysis = analysis;
-      await this.enforceFrozenHeaders(
-        task,
-        analysis.columns.map((column) => column.header),
-        saved,
-      );
 
       await this.files.update(saved.id, {
         analysis,
@@ -914,33 +1036,47 @@ export class ExcelMergeService {
     columns: MergeTaskColumn[],
   ): SuggestedMapping[] {
     const detected = file.analysis?.columns ?? [];
+    const savedMappings = task.columnMappings ?? {};
     return detected.map((column) => {
-      const saved = task.columnMappings[normalizeHeader(column.header)];
-      if (saved) {
-        const master = columns.find((item) => item.key === saved.columnKey);
+      const saved = savedMappings[normalizeHeader(column.header)];
+      if (saved?.action === 'ignore') {
         return {
           sourceHeader: column.header,
           sourceIndex: column.index,
-          action: saved.action,
-          columnKey: saved.columnKey,
-          columnLabel: master?.label ?? null,
+          action: 'ignore' as const,
+          columnKey: null,
+          columnLabel: null,
           reason: 'saved' as const,
         };
       }
+      if (saved?.action === 'map' && saved.columnKey) {
+        const outputColumn = columns.find(
+          (item) => item.key === saved.columnKey,
+        );
+        if (outputColumn) {
+          return {
+            sourceHeader: column.header,
+            sourceIndex: column.index,
+            action: 'map' as const,
+            columnKey: outputColumn.key,
+            columnLabel: outputColumn.label,
+            reason: 'saved' as const,
+          };
+        }
+      }
 
       const normalized = normalizeHeader(column.header);
-      const nameMatch = columns.find(
-        (item) =>
-          normalizeHeader(item.label) === normalized ||
-          item.key === toColumnKey(column.header, new Set()),
+      const nameMatches = columns.filter(
+        (item) => normalizeHeader(item.label) === normalized,
       );
-      if (nameMatch) {
+      if (nameMatches.length === 1) {
+        const match = nameMatches[0];
         return {
           sourceHeader: column.header,
           sourceIndex: column.index,
-          action: 'map',
-          columnKey: nameMatch.key,
-          columnLabel: nameMatch.label,
+          action: 'map' as const,
+          columnKey: match.key,
+          columnLabel: match.label,
           reason: 'name_match' as const,
         };
       }
@@ -948,7 +1084,7 @@ export class ExcelMergeService {
       return {
         sourceHeader: column.header,
         sourceIndex: column.index,
-        action: 'unmapped',
+        action: 'unmapped' as const,
         columnKey: null,
         columnLabel: null,
         reason: 'unmapped' as const,
@@ -975,9 +1111,6 @@ export class ExcelMergeService {
   }
 
   private toErrorReview(row: MergeTaskError, columns: MergeTaskColumn[]) {
-    const errorByKey = new Map(
-      row.fieldErrors.map((error) => [error.columnKey, error]),
-    );
     return {
       id: row.id,
       fileId: row.fileId,
@@ -986,17 +1119,23 @@ export class ExcelMergeService {
       status: row.status,
       originalValues: row.originalData,
       fields: columns.map((column) => {
-        const error = errorByKey.get(column.key);
+        const errors = row.fieldErrors.filter(
+          (error) => error.columnKey === column.key,
+        );
         const currentValue = row.mappedData[column.key] ?? null;
         return {
           columnKey: column.key,
           label: column.label,
           dataType: column.dataType,
           required: column.required,
+          primary: column.primary ?? false,
           currentValue,
-          originalValue: error?.originalValue ?? currentValue,
-          valid: row.status === MergeErrorStatus.RESOLVED ? true : !error,
-          message: error?.message ?? null,
+          originalValue: errors[0]?.originalValue ?? currentValue,
+          valid:
+            row.status === MergeErrorStatus.RESOLVED
+              ? true
+              : errors.length === 0,
+          message: errors.map((error) => error.message).join('; ') || null,
         };
       }),
       createdAt: row.createdAt,
@@ -1011,8 +1150,6 @@ export class ExcelMergeService {
       name: task.name,
       description: task.description,
       createdBy: task.createdBy,
-      frozenHeaders: task.frozenHeaders ?? [],
-      schemaFrozen: this.isSchemaFrozen(task),
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
@@ -1025,6 +1162,7 @@ export class ExcelMergeService {
       label: column.label,
       dataType: column.dataType,
       required: column.required,
+      primary: column.primary ?? false,
       sortOrder: column.sortOrder,
     };
   }
@@ -1051,89 +1189,622 @@ export class ExcelMergeService {
     };
   }
 
-  private isSchemaFrozen(task: MergeTask): boolean {
-    return (task.frozenHeaders?.length ?? 0) > 0;
+  private planMappings(
+    dto: ConfirmMappingDto,
+    file: MergeUploadedFile,
+    columns: MergeTaskColumn[],
+  ): {
+    resolved: FileColumnMapping[];
+    learned: Record<string, SavedColumnMapping>;
+    creates: Array<{
+      columnKey: string;
+      label: string;
+      dataType: TaskColumnDataType;
+      required: boolean;
+      primary: boolean;
+      sortOrder: number;
+    }>;
+  } {
+    const detectedColumns = file.analysis?.columns ?? [];
+    const usedKeys = new Set(columns.map((column) => column.key));
+    const knownLabels = columns.map((column) => column.label);
+    const claimedKeys = new Set<string>();
+    let nextOrder =
+      columns.reduce((max, column) => Math.max(max, column.sortOrder), -1) + 1;
+    const resolved: FileColumnMapping[] = [];
+    const learned: Record<string, SavedColumnMapping> = {};
+    const creates: Array<{
+      columnKey: string;
+      label: string;
+      dataType: TaskColumnDataType;
+      required: boolean;
+      primary: boolean;
+      sortOrder: number;
+    }> = [];
+    let primaryCreate = false;
+
+    for (const mapping of dto.mappings) {
+      const detected = detectedColumns.find(
+        (column) => column.header === mapping.sourceHeader,
+      );
+      if (!detected) {
+        throw new BadRequestException(
+          `Uploaded file has no column named "${mapping.sourceHeader}"`,
+        );
+      }
+
+      if (mapping.action === 'ignore') {
+        resolved.push({
+          sourceHeader: mapping.sourceHeader,
+          sourceIndex: detected.index,
+          action: 'ignore',
+          columnKey: null,
+        });
+        learned[normalizeHeader(mapping.sourceHeader)] = {
+          sourceHeader: mapping.sourceHeader,
+          action: 'ignore',
+          columnKey: null,
+        };
+        continue;
+      }
+
+      if (mapping.action === 'create') {
+        const label = this.outputColumnLabel(
+          mapping.label?.trim() || mapping.sourceHeader,
+        );
+        this.assertUniqueOutputLabel(
+          knownLabels.map((existingLabel) => ({ label: existingLabel })),
+          label,
+        );
+        knownLabels.push(label);
+        const columnKey = toColumnKey(label, usedKeys);
+        const dataType = mapping.dataType ?? detected.inferredType;
+        const required = mapping.required ?? false;
+        const primary = mapping.primary ?? false;
+        if (primary) {
+          if (primaryCreate) {
+            throw new BadRequestException(
+              'A task can have only one primary column',
+            );
+          }
+          primaryCreate = true;
+        }
+        creates.push({
+          columnKey,
+          label,
+          dataType,
+          required,
+          primary,
+          sortOrder: nextOrder,
+        });
+        nextOrder += 1;
+        resolved.push({
+          sourceHeader: mapping.sourceHeader,
+          sourceIndex: detected.index,
+          action: 'map',
+          columnKey,
+        });
+        learned[normalizeHeader(mapping.sourceHeader)] = {
+          sourceHeader: mapping.sourceHeader,
+          action: 'map',
+          columnKey,
+        };
+        continue;
+      }
+
+      const columnKey = mapping.columnKey ?? null;
+      if (!columnKey) {
+        throw new BadRequestException(
+          `Mapping for "${mapping.sourceHeader}" needs an output column`,
+        );
+      }
+      if (!columns.some((column) => column.key === columnKey)) {
+        throw new BadRequestException(
+          `Unknown output column "${columnKey}" for "${mapping.sourceHeader}"`,
+        );
+      }
+      if (claimedKeys.has(columnKey)) {
+        throw new BadRequestException(
+          'Two uploaded columns cannot map to the same output column',
+        );
+      }
+      claimedKeys.add(columnKey);
+      resolved.push({
+        sourceHeader: mapping.sourceHeader,
+        sourceIndex: detected.index,
+        action: 'map',
+        columnKey,
+      });
+      learned[normalizeHeader(mapping.sourceHeader)] = {
+        sourceHeader: mapping.sourceHeader,
+        action: 'map',
+        columnKey,
+      };
+    }
+
+    return { resolved, learned, creates };
   }
 
-  private assertSchemaUnlocked(task: MergeTask, action: string) {
-    if (this.isSchemaFrozen(task)) {
+  private outputColumnLabel(label: string): string {
+    const trimmed = label.trim();
+    if (!trimmed || !normalizeHeader(trimmed)) {
+      throw new BadRequestException('Output column name cannot be empty');
+    }
+    return trimmed;
+  }
+
+  private assertUniqueOutputLabel(
+    columns: Array<{ label: string }>,
+    label: string,
+  ) {
+    const normalized = normalizeHeader(label);
+    const duplicate = columns.find(
+      (column) => normalizeHeader(column.label) === normalized,
+    );
+    if (duplicate) {
       throw new BadRequestException(
-        `Column names are frozen from the first uploaded file. You cannot ${action}.`,
+        `An output column named "${duplicate.label}" already exists`,
       );
     }
   }
 
-  private async enforceFrozenHeaders(
-    task: MergeTask,
-    detectedHeaders: string[],
-    file: MergeUploadedFile,
-  ) {
-    const headers = detectedHeaders
-      .map((header) => header.trim())
-      .filter(Boolean);
-    if (headers.length === 0) {
-      return;
+  private primaryColumn(columns: MergeTaskColumn[]): MergeTaskColumn | null {
+    const marked = columns.filter((column) => column.primary);
+    if (marked.length > 1) {
+      throw new BadRequestException('A task can have only one primary column');
     }
-
-    if (!this.isSchemaFrozen(task)) {
-      task.frozenHeaders = headers;
-      await this.tasks.save(task);
-      await this.seedColumnsFromFirstFile(task.id, file);
-      return;
-    }
-
-    const extra = unexpectedHeaders(task.frozenHeaders, headers);
-    if (extra.length === 0) {
-      return;
-    }
-
-    throw new BadRequestException(
-      `This task's column names are frozen from the first uploaded file. Unexpected column(s): ${extra.join(', ')}. Expected: ${task.frozenHeaders.join(', ')}.`,
-    );
+    return marked[0] ?? null;
   }
 
-  private async seedColumnsFromFirstFile(
-    taskId: string,
-    file: MergeUploadedFile,
+  private assertSinglePrimary(count: number) {
+    if (count > 1) {
+      throw new BadRequestException('A task can have only one primary column');
+    }
+  }
+
+  private applyPrimaryCheck(
+    primary: MergeTaskColumn | null,
+    index: PrimaryValueIndex | null,
+    result: RowValidationResult,
+    scope: 'file' | 'request' = 'file',
   ) {
-    const detected = file.analysis?.columns ?? [];
-    if (detected.length === 0) {
+    if (!primary || !index) {
       return;
     }
-
-    const existing = await this.columns.find({ where: { taskId } });
-    const used = new Set(existing.map((column) => column.key));
-    const existingNames = new Set(
-      existing.map((column) => normalizeHeader(column.label)),
-    );
-    let sortOrder =
-      existing.reduce((max, column) => Math.max(max, column.sortOrder), -1) + 1;
-
-    const created = detected
-      .filter((column) => {
-        const normalized = normalizeHeader(column.header);
-        if (!normalized || existingNames.has(normalized)) {
-          return false;
-        }
-        existingNames.add(normalized);
-        return true;
-      })
-      .map((column) => {
-        const entity = this.columns.create({
-          taskId,
-          key: toColumnKey(column.header, used),
-          label: column.header,
-          dataType: column.inferredType,
-          required: false,
-          sortOrder,
-        });
-        sortOrder += 1;
-        return entity;
-      });
-
-    if (created.length) {
-      await this.columns.save(created);
+    const duplicate = index.check(primary, result.data[primary.key], scope);
+    if (duplicate) {
+      result.fieldErrors.push(duplicate);
+      result.valid = false;
     }
+    if (result.valid) {
+      index.remember(result.data[primary.key]);
+    }
+  }
+
+  private async loadColumns(taskId: string) {
+    return this.columns.find({
+      where: { taskId },
+      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+  }
+
+  private async requireDataRow(taskId: string, dataId: string) {
+    const row = await this.data.findOne({
+      where: { id: dataId, taskId },
+      relations: { file: true },
+    });
+    if (!row) {
+      throw new NotFoundException('Data row not found');
+    }
+    return row;
+  }
+
+  private assertKnownColumnKeys(
+    columns: MergeTaskColumn[],
+    values: Record<string, unknown>,
+  ) {
+    const unknown = Object.keys(values).filter(
+      (key) => !columns.some((column) => column.key === key),
+    );
+    if (unknown.length > 0) {
+      throw new BadRequestException(`Unknown output column "${unknown[0]}"`);
+    }
+  }
+
+  private async primaryIndex(
+    taskId: string,
+    columns: MergeTaskColumn[],
+    excludeIds: Set<string>,
+  ) {
+    const primary = this.primaryColumn(columns);
+    if (!primary) {
+      return { primary: null, index: null };
+    }
+    const existing = await this.data.find({ where: { taskId } });
+    return {
+      primary,
+      index: new PrimaryValueIndex(
+        existing
+          .filter((row) => !excludeIds.has(row.id))
+          .map((row) => row.data?.[primary.key]),
+      ),
+    };
+  }
+
+  private originalSnapshot(
+    columns: MergeTaskColumn[],
+    data: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const original: Record<string, unknown> = {};
+    for (const column of columns) {
+      const value = data[column.key];
+      original[column.label] = value === undefined ? null : value;
+    }
+    return original;
+  }
+
+  private async insertDataRows(taskId: string, items: CreateTaskDataDto[]) {
+    if (items.length === 0) {
+      throw new BadRequestException('Provide at least one row to add');
+    }
+    if (items.length > BULK_DATA_LIMIT) {
+      throw new BadRequestException(
+        `Add at most ${BULK_DATA_LIMIT} rows at once`,
+      );
+    }
+
+    await this.requireTask(taskId);
+    const columns = await this.loadColumns(taskId);
+    if (columns.length === 0) {
+      throw new BadRequestException(
+        'Add at least one output column before adding rows',
+      );
+    }
+
+    const files = new Map<string, MergeUploadedFile>();
+    for (const item of items) {
+      if (item.fileId && !files.has(item.fileId)) {
+        files.set(item.fileId, await this.requireFile(taskId, item.fileId));
+      }
+    }
+
+    const { primary, index } = await this.primaryIndex(
+      taskId,
+      columns,
+      new Set(),
+    );
+    const pending: MergeTaskData[] = [];
+    const failures: Array<{
+      index: number;
+      remainingProblems: FieldError[];
+    }> = [];
+
+    items.forEach((item, rowIndex) => {
+      this.assertKnownColumnKeys(columns, item.values);
+      if (Object.keys(item.values).length === 0) {
+        throw new BadRequestException('Provide at least one value to add');
+      }
+      const result = validateMappedRow(columns, item.values, {});
+      this.applyPrimaryCheck(primary, index, result, 'request');
+      if (!result.valid) {
+        failures.push({
+          index: rowIndex,
+          remainingProblems: result.fieldErrors,
+        });
+        return;
+      }
+      const file = item.fileId ? files.get(item.fileId) : undefined;
+      pending.push(
+        this.data.create({
+          taskId,
+          fileId: file?.id ?? null,
+          sourceRowNumber: item.sourceRowNumber ?? null,
+          data: result.data,
+          originalData: this.originalSnapshot(columns, result.data),
+        }),
+      );
+    });
+
+    if (failures.length > 0) {
+      if (items.length === 1) {
+        throw new BadRequestException({
+          message: 'Row has invalid values',
+          remainingProblems: failures[0].remainingProblems,
+        });
+      }
+      throw new BadRequestException({
+        message: 'Some rows have invalid values',
+        rows: failures,
+      });
+    }
+
+    const saved = await this.data.save(pending);
+    const savedRows = Array.isArray(saved) ? saved : [saved];
+    const addedByFile = new Map<string, number>();
+    for (const row of savedRows) {
+      if (row.fileId) {
+        row.file = files.get(row.fileId) ?? null;
+        addedByFile.set(row.fileId, (addedByFile.get(row.fileId) ?? 0) + 1);
+      }
+    }
+    for (const [fileId, count] of addedByFile) {
+      await this.files.increment({ id: fileId }, 'validCount', count);
+    }
+    return savedRows.map((row) => this.toDataRow(row, columns));
+  }
+
+  private bulkDataChanges(dto: BulkUpdateTaskDataDto) {
+    const hasRows = Boolean(dto.rows?.length);
+    const hasIds = Boolean(dto.ids?.length);
+    if (hasRows && (hasIds || dto.values)) {
+      throw new BadRequestException(
+        'Send either ids with values, or rows, not both',
+      );
+    }
+    if (hasRows) {
+      return dto.rows!;
+    }
+    if (hasIds) {
+      return dto.ids!.map((id) => ({ id, values: dto.values ?? {} }));
+    }
+    throw new BadRequestException('Provide ids and values, or rows to update');
+  }
+
+  private async applyDataChanges(
+    taskId: string,
+    changes: Array<{ id: string; values: Record<string, unknown> }>,
+    single = false,
+  ) {
+    if (changes.length === 0) {
+      throw new BadRequestException('Provide at least one row to update');
+    }
+    if (changes.length > BULK_DATA_LIMIT) {
+      throw new BadRequestException(
+        `Update at most ${BULK_DATA_LIMIT} rows at once`,
+      );
+    }
+    const seen = new Set<string>();
+    for (const change of changes) {
+      if (seen.has(change.id)) {
+        throw new BadRequestException('Each data row can only be updated once');
+      }
+      seen.add(change.id);
+    }
+
+    await this.requireTask(taskId);
+    const columns = await this.loadColumns(taskId);
+    const rows: MergeTaskData[] = [];
+    for (const change of changes) {
+      rows.push(await this.requireDataRow(taskId, change.id));
+    }
+
+    const { primary, index } = await this.primaryIndex(
+      taskId,
+      columns,
+      new Set(changes.map((change) => change.id)),
+    );
+    const failures: Array<{ id: string; remainingProblems: FieldError[] }> =
+      [];
+    const ready: Array<{ row: MergeTaskData; data: Record<string, unknown> }> =
+      [];
+
+    changes.forEach((change, position) => {
+      const row = rows[position];
+      this.assertKnownColumnKeys(columns, change.values);
+      if (Object.keys(change.values).length === 0) {
+        throw new BadRequestException('Provide at least one value to update');
+      }
+      const result = validateMappedRow(
+        columns,
+        { ...row.data, ...change.values },
+        row.originalData,
+      );
+      this.applyPrimaryCheck(
+        primary,
+        index,
+        result,
+        single ? 'file' : 'request',
+      );
+      if (!result.valid) {
+        failures.push({ id: row.id, remainingProblems: result.fieldErrors });
+        return;
+      }
+      ready.push({ row, data: result.data });
+    });
+
+    if (failures.length > 0) {
+      if (single) {
+        throw new BadRequestException({
+          message: 'Row still has invalid values',
+          remainingProblems: failures[0].remainingProblems,
+        });
+      }
+      throw new BadRequestException({
+        message: 'Some rows still have invalid values',
+        rows: failures,
+      });
+    }
+
+    for (const item of ready) {
+      item.row.data = item.data;
+    }
+    await this.data.save(ready.map((item) => item.row));
+    return ready.map((item) => this.toDataRow(item.row, columns));
+  }
+
+  private async deleteDataRows(taskId: string, ids: string[]) {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) {
+      throw new BadRequestException('Choose at least one data row to delete');
+    }
+    if (unique.length > BULK_DATA_LIMIT) {
+      throw new BadRequestException(
+        `Delete at most ${BULK_DATA_LIMIT} rows at once`,
+      );
+    }
+
+    await this.requireTask(taskId);
+    const rows: MergeTaskData[] = [];
+    for (const id of unique) {
+      rows.push(await this.requireDataRow(taskId, id));
+    }
+
+    const removedByFile = new Map<string, number>();
+    for (const row of rows) {
+      await this.data.delete({ id: row.id, taskId });
+      if (row.fileId) {
+        removedByFile.set(row.fileId, (removedByFile.get(row.fileId) ?? 0) + 1);
+      }
+    }
+    for (const [fileId, count] of removedByFile) {
+      await this.files.decrement({ id: fileId }, 'validCount', count);
+    }
+    return rows.length;
+  }
+
+  private entityOrder(
+    sort: string | undefined,
+    order: ListSortOrder | undefined,
+    allowed: readonly string[],
+    fallback: Record<string, 'ASC' | 'DESC'>,
+  ): Record<string, 'ASC' | 'DESC'> {
+    this.assertSortRequest(sort, order);
+    if (!sort) {
+      return fallback;
+    }
+    if (!allowed.includes(sort)) {
+      throw new BadRequestException(`Unknown sort column "${sort}"`);
+    }
+    return { [sort]: this.sortDirection(order) };
+  }
+
+  private valueOrder(
+    jsonColumn: 'data' | 'mappedData',
+    columns: Array<{ key: string; dataType: TaskColumnDataType }>,
+    sort: string | undefined,
+    order: ListSortOrder | undefined,
+    fallback: Array<{ expression: string; direction: 'ASC' | 'DESC' }>,
+    meta: readonly string[],
+  ): Array<{ expression: string; direction: 'ASC' | 'DESC' }> {
+    this.assertSortRequest(sort, order);
+    if (!sort) {
+      return fallback;
+    }
+    const direction = this.sortDirection(order);
+    const column = columns.find((item) => item.key === sort);
+    let expression: string;
+    if (column) {
+      this.assertSortKey(column.key);
+      expression = this.columnSortExpression(jsonColumn, column);
+    } else if (meta.includes(sort)) {
+      expression = sort === 'fileName' ? 'file.fileName' : `row.${sort}`;
+    } else {
+      throw new BadRequestException(`Unknown sort column "${sort}"`);
+    }
+    return [
+      { expression, direction },
+      { expression: 'row.createdAt', direction: 'ASC' },
+      { expression: 'row.id', direction: 'ASC' },
+    ];
+  }
+
+  private columnSortExpression(
+    jsonColumn: 'data' | 'mappedData',
+    column: { key: string; dataType: TaskColumnDataType },
+  ) {
+    const text = `btrim(row.${jsonColumn} ->> '${column.key}')`;
+    if (
+      column.dataType === TaskColumnDataType.NUMBER ||
+      column.dataType === TaskColumnDataType.INTEGER
+    ) {
+      return `CASE WHEN ${text} ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN ${text}::numeric END`;
+    }
+    return `row.${jsonColumn} ->> '${column.key}'`;
+  }
+
+  private applyOrder(
+    qb: {
+      addSelect(selection: string, selectionAliasName: string): unknown;
+      orderBy(
+        sort: string,
+        order?: 'ASC' | 'DESC',
+        nulls?: 'NULLS LAST',
+      ): unknown;
+      addOrderBy(
+        sort: string,
+        order?: 'ASC' | 'DESC',
+        nulls?: 'NULLS LAST',
+      ): unknown;
+    },
+    orders: Array<{ expression: string; direction: 'ASC' | 'DESC' }>,
+  ) {
+    orders.forEach((item, index) => {
+      // skip/take with a join makes TypeORM split ORDER BY on the first dot.
+      // JSON expressions are not `alias.column`, so sort them through a select alias.
+      const expression = /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(
+        item.expression,
+      )
+        ? item.expression
+        : this.selectSortValue(qb, item.expression, index);
+      if (index === 0) {
+        qb.orderBy(expression, item.direction, 'NULLS LAST');
+      } else {
+        qb.addOrderBy(expression, item.direction, 'NULLS LAST');
+      }
+    });
+  }
+
+  private selectSortValue(
+    qb: { addSelect(selection: string, selectionAliasName: string): unknown },
+    expression: string,
+    index: number,
+  ) {
+    const alias = `sort_value_${index}`;
+    qb.addSelect(expression, alias);
+    return alias;
+  }
+
+  private assertSortRequest(sort?: string, order?: ListSortOrder) {
+    if (order && !sort) {
+      throw new BadRequestException('Choose a column to sort');
+    }
+  }
+
+  private sortDirection(order?: ListSortOrder): 'ASC' | 'DESC' {
+    return order === ListSortOrder.DESC ? 'DESC' : 'ASC';
+  }
+
+  private assertSortKey(key: string) {
+    if (!/^[a-z][a-z0-9_]*$/.test(key)) {
+      throw new BadRequestException(`Cannot sort by "${key}"`);
+    }
+  }
+
+  private toDataRow(row: MergeTaskData, columns: Array<{ key: string }>) {
+    return {
+      id: row.id,
+      fileId: row.fileId,
+      fileName: row.file?.fileName ?? null,
+      sourceRowNumber: row.sourceRowNumber,
+      values: this.projectOutputValues(
+        columns.map((column) => column.key),
+        row.data,
+      ),
+      originalValues: row.originalData,
+      createdAt: row.createdAt,
+    };
+  }
+
+  private projectOutputValues(
+    columnKeys: string[],
+    data: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> {
+    const values: Record<string, unknown> = {};
+    for (const key of columnKeys) {
+      const value = data?.[key];
+      values[key] = value === undefined ? null : value;
+    }
+    return values;
   }
 
   private async requireTask(taskId: string): Promise<MergeTask> {
@@ -1186,6 +1857,251 @@ export class ExcelMergeService {
     return name.endsWith('.xlsx');
   }
 
+  private async summaryForExport(
+    task: MergeTask,
+    columns: MergeTaskColumn[],
+    query: ExportTaskDataQueryDto,
+  ): Promise<TaskSummaryConfig | null> {
+    const current = task.summaryConfig ?? null;
+    const sent =
+      query.rowColumn !== undefined ||
+      query.columnColumn !== undefined ||
+      query.totalLabel !== undefined;
+    if (!sent) {
+      return current;
+    }
+    const rowColumn = query.rowColumn ?? current?.rowColumn;
+    const columnColumn = query.columnColumn ?? current?.columnColumn;
+    const totalLabel = (query.totalLabel ?? current?.totalLabel)?.trim();
+    if (!rowColumn || !columnColumn || !totalLabel) {
+      throw new BadRequestException(
+        'Send rowColumn, columnColumn, and totalLabel',
+      );
+    }
+    const summary = this.checkedSummary(columns, {
+      rowColumn,
+      columnColumn,
+      totalLabel,
+      metrics: current?.metrics ?? [],
+    });
+    task.summaryConfig = summary;
+    await this.tasks.save(task);
+    return summary;
+  }
+
+  private checkedSummary(
+    columns: MergeTaskColumn[],
+    summary: TaskSummaryConfig,
+  ): TaskSummaryConfig {
+    if (summary.rowColumn === summary.columnColumn) {
+      throw new BadRequestException(
+        'Choose two different columns for the summary blocks and headers',
+      );
+    }
+    this.assertSummaryColumn(columns, summary.rowColumn);
+    this.assertSummaryColumn(columns, summary.columnColumn);
+    if (!summary.totalLabel.trim()) {
+      throw new BadRequestException('Summary total label cannot be empty');
+    }
+    for (const metric of summary.metrics) {
+      if (!metric.label.trim()) {
+        throw new BadRequestException('Summary row label cannot be empty');
+      }
+      if (metric.op === 'sum') {
+        const column = this.assertSummaryColumn(columns, metric.column);
+        if (
+          column.dataType !== TaskColumnDataType.NUMBER &&
+          column.dataType !== TaskColumnDataType.INTEGER
+        ) {
+          throw new BadRequestException(
+            `${column.label} must be a number column to add`,
+          );
+        }
+      }
+      for (const filter of metric.when ?? []) {
+        this.assertSummaryColumn(columns, filter.column);
+        if (
+          typeof filter.equals !== 'string' &&
+          typeof filter.equals !== 'number' &&
+          typeof filter.equals !== 'boolean'
+        ) {
+          throw new BadRequestException(
+            'A summary filter equals a text, number, or yes/no value',
+          );
+        }
+        if (typeof filter.equals === 'number' && !Number.isFinite(filter.equals)) {
+          throw new BadRequestException(
+            'A summary filter equals a text, number, or yes/no value',
+          );
+        }
+      }
+    }
+    return {
+      rowColumn: summary.rowColumn,
+      columnColumn: summary.columnColumn,
+      totalLabel: summary.totalLabel.trim(),
+      metrics: summary.metrics.map((metric) => {
+        const saved: SummaryMetric = {
+          label: metric.label.trim(),
+          op: metric.op,
+        };
+        if (metric.op === 'sum' && metric.column) {
+          saved.column = metric.column;
+        }
+        if (metric.when?.length) {
+          saved.when = metric.when;
+        }
+        return saved;
+      }),
+    };
+  }
+
+  private assertSummaryColumn(
+    columns: MergeTaskColumn[],
+    key: string | undefined,
+  ): MergeTaskColumn {
+    const column = columns.find((item) => item.key === key);
+    if (!column) {
+      throw new BadRequestException(
+        key
+          ? `Unknown output column "${key}"`
+          : 'Choose a number column to add',
+      );
+    }
+    return column;
+  }
+
+  private writeSummarySheet(
+    workbook: ExcelJS.Workbook,
+    rows: MergeTaskData[],
+    summary: TaskSummaryConfig,
+  ) {
+    const sheet = workbook.addWorksheet('Summary');
+    sheet.getColumn(1).width = 3;
+    const blocks = this.summaryBlocks(rows, summary);
+    blocks.forEach((block, index) => {
+      const header = sheet.addRow([
+        null,
+        block.rowValue,
+        summary.totalLabel,
+        ...block.groups,
+      ]);
+      this.paintSummaryRow(header, block.groups.length, 'header');
+      for (const metric of block.metrics) {
+        const line = sheet.addRow([
+          null,
+          metric.label,
+          metric.total,
+          ...metric.values,
+        ]);
+        this.paintSummaryRow(line, block.groups.length, 'metric');
+      }
+      if (index < blocks.length - 1) {
+        sheet.addRow([]);
+      }
+    });
+    this.fitColumns(sheet, 2);
+  }
+
+  private summaryBlocks(rows: MergeTaskData[], summary: TaskSummaryConfig) {
+    const rowOrder: string[] = [];
+    const groupsByRow = new Map<string, string[]>();
+    const rowsByGroup = new Map<string, Map<string, MergeTaskData[]>>();
+    for (const row of rows) {
+      const rowValue = this.summaryText(row.data?.[summary.rowColumn]);
+      const columnValue = this.summaryText(row.data?.[summary.columnColumn]);
+      if (!rowValue || !columnValue) {
+        continue;
+      }
+      if (!rowsByGroup.has(rowValue)) {
+        rowOrder.push(rowValue);
+        rowsByGroup.set(rowValue, new Map());
+        groupsByRow.set(rowValue, []);
+      }
+      const groups = rowsByGroup.get(rowValue)!;
+      if (!groups.has(columnValue)) {
+        groupsByRow.get(rowValue)!.push(columnValue);
+        groups.set(columnValue, []);
+      }
+      groups.get(columnValue)!.push(row);
+    }
+
+    return rowOrder.map((rowValue) => {
+      const groups = [...(groupsByRow.get(rowValue) ?? [])].sort((left, right) =>
+        left.localeCompare(right, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+      const byGroup = rowsByGroup.get(rowValue)!;
+      return {
+        rowValue,
+        groups,
+        metrics: summary.metrics.map((metric) => {
+          const values = groups.map((group) =>
+            this.summarizeMetric(byGroup.get(group) ?? [], metric),
+          );
+          return {
+            label: metric.label,
+            values,
+            total: values.reduce((sum, value) => sum + value, 0),
+          };
+        }),
+      };
+    });
+  }
+
+  private summarizeMetric(rows: MergeTaskData[], metric: SummaryMetric): number {
+    const matched = rows.filter((row) =>
+      (metric.when ?? []).every((filter) =>
+        this.summaryEquals(row.data?.[filter.column], filter.equals),
+      ),
+    );
+    if (metric.op === 'count') {
+      return matched.length;
+    }
+    return matched.reduce(
+      (sum, row) => sum + this.summaryNumber(row.data?.[metric.column!]),
+      0,
+    );
+  }
+
+  private summaryText(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    const text = String(value).trim();
+    return text ? text : null;
+  }
+
+  private summaryEquals(value: unknown, expected: string | number | boolean) {
+    if (typeof expected === 'number') {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value === expected;
+      }
+      const text = this.summaryText(value)?.replace(/,/g, '');
+      if (!text || !/^-?[0-9]+(\.[0-9]+)?$/.test(text)) {
+        return false;
+      }
+      return Number(text) === expected;
+    }
+    if (typeof expected === 'boolean') {
+      return value === expected;
+    }
+    return this.summaryText(value) === expected.trim();
+  }
+
+  private summaryNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (value === null || value === undefined || value === '') {
+      return 0;
+    }
+    const parsed = Number(String(value).trim().replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   private exportCell(value: unknown): string | number | boolean | Date | null {
     if (value === null || value === undefined) {
       return null;
@@ -1200,10 +2116,92 @@ export class ExcelMergeService {
     return String(value);
   }
 
-  private styleHeader(sheet: ExcelJS.Worksheet) {
-    const header = sheet.getRow(1);
-    header.font = { bold: true };
-    header.commit();
+  private paintTable(sheet: ExcelJS.Worksheet) {
+    const columnCount = sheet.columnCount;
+    const rowCount = sheet.rowCount;
+    if (columnCount === 0 || rowCount === 0) {
+      return;
+    }
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: columnCount },
+    };
+    for (let rowNumber = 1; rowNumber <= rowCount; rowNumber += 1) {
+      const row = sheet.getRow(rowNumber);
+      const header = rowNumber === 1;
+      row.height = header ? 22 : 18;
+      for (let column = 1; column <= columnCount; column += 1) {
+        const cell = row.getCell(column);
+        cell.border = this.cellBorder();
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal:
+            header || typeof cell.value === 'number' ? 'center' : 'left',
+          wrapText: header,
+        };
+        if (header) {
+          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.fill = this.solidFill('FF5C2D4A');
+        } else if (rowNumber % 2 === 0) {
+          cell.fill = this.solidFill('FFF8F1F4');
+        }
+      }
+    }
+    this.fitColumns(sheet, 1);
+  }
+
+  private paintSummaryRow(
+    row: ExcelJS.Row,
+    groupCount: number,
+    kind: 'header' | 'metric',
+  ) {
+    row.height = 20;
+    const lastColumn = 3 + groupCount;
+    for (let column = 2; column <= lastColumn; column += 1) {
+      const cell = row.getCell(column);
+      cell.border = this.cellBorder();
+      cell.alignment = {
+        vertical: 'middle',
+        horizontal: column === 2 && kind === 'metric' ? 'left' : 'center',
+        wrapText: true,
+      };
+      if (kind === 'header') {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = this.solidFill('FF5C2D4A');
+      } else if (column === 2) {
+        cell.font = { bold: true, color: { argb: 'FF3D2A24' } };
+        cell.fill = this.solidFill('FFF6D7B8');
+      } else if (column === 3) {
+        cell.font = { bold: true, color: { argb: 'FF3D2A24' } };
+        cell.fill = this.solidFill('FFE4C6DE');
+      } else {
+        cell.fill = this.solidFill('FFF7F0F8');
+      }
+    }
+  }
+
+  private cellBorder(): Partial<ExcelJS.Borders> {
+    const edge: ExcelJS.Border = { style: 'thin', color: { argb: 'FFD9C9CF' } };
+    return { top: edge, left: edge, bottom: edge, right: edge };
+  }
+
+  private solidFill(argb: string): ExcelJS.Fill {
+    return { type: 'pattern', pattern: 'solid', fgColor: { argb } };
+  }
+
+  private fitColumns(sheet: ExcelJS.Worksheet, fromColumn: number) {
+    const lastRow = Math.min(sheet.rowCount, 200);
+    for (let column = fromColumn; column <= sheet.columnCount; column += 1) {
+      let width = 12;
+      for (let rowNumber = 1; rowNumber <= lastRow; rowNumber += 1) {
+        const value = sheet.getRow(rowNumber).getCell(column).value;
+        const length =
+          value === null || value === undefined ? 0 : String(value).length;
+        width = Math.max(width, Math.min(length + 3, 42));
+      }
+      sheet.getColumn(column).width = width;
+    }
   }
 
   private safeFileName(name: string): string {

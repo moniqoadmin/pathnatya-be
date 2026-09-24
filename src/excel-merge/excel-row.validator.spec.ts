@@ -1,12 +1,7 @@
-import { validateMappedRow } from './excel-row.validator';
+import { PrimaryValueIndex, validateMappedRow } from './excel-row.validator';
 import { TaskColumnDataType } from './excel-merge.types';
 import { MergeTaskColumn } from './entities/task-column.entity';
-import {
-  inferType,
-  normalizeHeader,
-  toColumnKey,
-  unexpectedHeaders,
-} from './excel-cell.util';
+import { inferType, normalizeHeader, toColumnKey } from './excel-cell.util';
 
 function column(
   key: string,
@@ -21,6 +16,7 @@ function column(
     label,
     dataType,
     required,
+    primary: false,
     sortOrder: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -76,6 +72,51 @@ describe('excel-row.validator', () => {
         ?.originalValue,
     ).toBe('ABC123');
   });
+
+  it('leaves a new optional output column null when the row has no value', () => {
+    const result = validateMappedRow(
+      [...columns, column('age', 'Age', TaskColumnDataType.INTEGER, false)],
+      {
+        kendra_name: 'Baner',
+        mobile_number: '9876543210',
+        teams: '4',
+      },
+      { Kendra: 'Baner' },
+    );
+    expect(result.valid).toBe(true);
+    expect(result.data.age).toBeNull();
+  });
+
+  it('requires a value in the primary column', () => {
+    const result = validateMappedRow(
+      [column('mobile_number', 'Mobile Number', TaskColumnDataType.PHONE)].map(
+        (item, index) => (index === 0 ? { ...item, primary: true } : item),
+      ),
+      { mobile_number: '' },
+      { Mobile: '' },
+    );
+    expect(result.valid).toBe(false);
+    expect(result.fieldErrors[0].message).toBe(
+      'Mobile Number is the primary column and is required',
+    );
+  });
+});
+
+describe('PrimaryValueIndex', () => {
+  it('treats case variants as the same primary value', () => {
+    const name = column('name', 'Name', TaskColumnDataType.STRING);
+    name.primary = true;
+    const index = new PrimaryValueIndex(['Rahul']);
+
+    expect(index.check(name, 'rahul')?.message).toBe(
+      'Name "rahul" is already in the merged data',
+    );
+    expect(index.check(name, 'Asha')).toBeNull();
+    index.remember('Asha');
+    expect(index.check(name, 'asha')?.message).toBe(
+      'Name "asha" is duplicated in this file',
+    );
+  });
 });
 
 describe('excel-cell.util', () => {
@@ -96,28 +137,5 @@ describe('excel-cell.util', () => {
     );
     expect(inferType(['4', '12', '0'])).toBe(TaskColumnDataType.INTEGER);
     expect(inferType(['Baner', 'Kothrud'])).toBe(TaskColumnDataType.STRING);
-  });
-
-  it('flags new column names against the frozen first-file headers', () => {
-    const frozen = ['Taluka', 'Kendra Name', 'Mobile No', 'Teams'];
-    expect(unexpectedHeaders(frozen, frozen)).toEqual([]);
-    expect(
-      unexpectedHeaders(frozen, [
-        'kendra name',
-        'Mobile No.',
-        'Teams',
-        'Taluka',
-      ]),
-    ).toEqual([]);
-    expect(
-      unexpectedHeaders(frozen, [
-        'Taluka',
-        'Kendra Name',
-        'Mobile No',
-        'Teams',
-        'Spots',
-        'Remarks',
-      ]),
-    ).toEqual(['Spots', 'Remarks']);
   });
 });
